@@ -10,8 +10,6 @@
  * Game concept management for consistent asset style across all generators.
  */
 
-import { config } from "dotenv";
-config();  // .env 파일 로드 (GEMINI_API_KEY, OPENAI_API_KEY 등)
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
