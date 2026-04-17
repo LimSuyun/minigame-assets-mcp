@@ -1,7 +1,8 @@
 /**
  * claude-vision.ts
  *
- * Claude claude-haiku-4-5-20251001 비전 모델을 이용한 스프라이트 품질 검증.
+ * 스프라이트 품질 검증 — Gemini 2.5 Flash Vision 사용.
+ * (이전: Anthropic Claude Haiku → 현재: Gemini 2.5 Flash로 대체)
  *
  * 검사 항목:
  *   1. 전신 가시성 — 머리부터 발끝까지 캐릭터가 완전히 보이는가 (잘림 없음)
@@ -11,22 +12,11 @@
  *   5. 유효한 이미지 — 거의 비어 있지 않은가 (빈 프레임 방지)
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { analyzeImageGemini } from "./gemini.js";
 
 export interface QualityCheckResult {
   passed: boolean;
   issues: string[];
-}
-
-let _client: Anthropic | null = null;
-
-function getClient(): Anthropic {
-  if (!_client) {
-    const apiKey = process.env["ANTHROPIC_API_KEY"];
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY 환경변수가 설정되지 않았습니다.");
-    _client = new Anthropic({ apiKey });
-  }
-  return _client;
 }
 
 const QUALITY_CHECK_PROMPT = `You are a game sprite quality inspector. Analyze this sprite frame image strictly.
@@ -45,7 +35,7 @@ or
 {"passed": false, "issues": ["FULL_BODY: left arm clipped", "BACKGROUND: white halo around weapon"]}`;
 
 /**
- * 스프라이트 프레임 품질 검증.
+ * 스프라이트 프레임 품질 검증 (Gemini 2.5 Flash Vision).
  *
  * @param imageBase64 - PNG base64 (배경 제거 후)
  * @param characterHint - 선택적 캐릭터 설명 (예: "green alien soldier in black armor")
@@ -55,39 +45,18 @@ export async function checkSpriteFrameQuality(
   imageBase64: string,
   characterHint?: string
 ): Promise<QualityCheckResult> {
-  const client = getClient();
-
   const userPrompt = characterHint
     ? `${QUALITY_CHECK_PROMPT}\n\nCharacter context: ${characterHint}`
     : QUALITY_CHECK_PROMPT;
 
   try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/png",
-                data: imageBase64,
-              },
-            },
-            {
-              type: "text",
-              text: userPrompt,
-            },
-          ],
-        },
-      ],
+    const text = await analyzeImageGemini({
+      imageBase64,
+      imageMimeType: "image/png",
+      prompt: userPrompt,
+      model: "gemini-2.5-flash",
+      maxOutputTokens: 300,
     });
-
-    const text =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
 
     // JSON 추출 (앞뒤 텍스트 허용)
     const jsonMatch = text.match(/\{[\s\S]*\}/);

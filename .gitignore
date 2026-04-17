@@ -29,6 +29,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Local process/notes documentation (not for public repo)
+PROCESS.md
+MCP_PLAN.md
+
 # Logs
 *.log
 npm-debug.log*

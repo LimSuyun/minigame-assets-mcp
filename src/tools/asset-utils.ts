@@ -12,7 +12,9 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_CONCEPT_MD_FILE } from "../constants.js";
+import { DEFAULT_CONCEPT_MD_FILE, DEFAULT_GAME_DESIGN_FILE } from "../constants.js";
+import type { GameDesign } from "../types.js";
+import { analyzeAssetRequirements, type RequirementLevel } from "../utils/asset-requirements.js";
 
 // ─── 유틸리티 ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +30,75 @@ function walkDir(dir: string): string[] {
     }
   }
   return results;
+}
+
+/**
+ * GAME_DESIGN.json에서 필요한 에셋 ID 목록을 추출합니다.
+ * characters, enemies, weapons, items, maps, effects, screens, sounds 필드를 파싱합니다.
+ */
+function extractAssetIdsFromGameDesign(gameDesignPath: string): string[] {
+  if (!fs.existsSync(gameDesignPath)) return [];
+  try {
+    const design = JSON.parse(fs.readFileSync(gameDesignPath, "utf-8")) as GameDesign;
+    const ids: string[] = [];
+
+    // 캐릭터 — base sprite + action sprites
+    for (const c of design.characters ?? []) {
+      ids.push(`sprites/${c.id}/${c.id}_base`);
+      ids.push(`sprites/${c.id}/${c.id}_idle_f00`);
+      ids.push(`sprites/${c.id}/${c.id}_walk_f00`);
+      ids.push(`sprites/${c.id}/${c.id}_attack_f00`);
+    }
+    // 적 — base sprite
+    for (const e of design.enemies ?? []) {
+      ids.push(`sprites/${e.id}/${e.id}_base`);
+      for (const action of e.actions ?? []) {
+        ids.push(`sprites/${e.id}/${e.id}_${action}_f00`);
+      }
+    }
+    // 무기
+    for (const w of design.weapons ?? []) {
+      ids.push(`weapons/${w.id}/${w.id}_icon`);
+    }
+    // 아이템
+    for (const item of design.items ?? []) {
+      ids.push(`icons/${item.id}_icon`);
+    }
+    // 맵/배경
+    for (const m of design.maps ?? []) {
+      ids.push(`backgrounds/${m.id}_full`);
+      ids.push(`backgrounds/${m.id}_parallax_far`);
+      ids.push(`backgrounds/${m.id}_parallax_mid`);
+      ids.push(`backgrounds/${m.id}_parallax_near`);
+    }
+    // 이펙트
+    for (const ef of design.effects ?? []) {
+      ids.push(`effects/${ef.id}/${ef.id}_sheet`);
+    }
+    // 화면 배경
+    for (const s of design.screens ?? []) {
+      ids.push(`backgrounds/screen_${s.id}`);
+    }
+    // BGM
+    for (const track of design.sounds?.bgm_tracks ?? []) {
+      ids.push(`sounds/bgm/${track}`);
+    }
+    // SFX
+    for (const sfx of design.sounds?.sfx_list ?? []) {
+      ids.push(`sounds/sfx/${sfx}`);
+    }
+    // 마케팅
+    if (design.marketing?.generate_logo) {
+      ids.push(`marketing/${design.game_name?.replace(/\s+/g, "_")}_logo`);
+    }
+    if (design.marketing?.generate_thumbnail) {
+      ids.push(`marketing/${design.game_name?.replace(/\s+/g, "_")}_thumbnail`);
+    }
+
+    return ids;
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -389,25 +460,36 @@ Returns:
 **필수 목록 소스** (우선순위 순):
 1. \`required_assets\` 파라미터로 직접 지정
 2. \`spec_file\` JSON 파일에서 로드 (\`required_assets\` 배열 키)
-3. \`concept_md\` CONCEPT.md에서 에셋 ID 목록 추출 (테이블 첫 번째 컬럼)
+3. \`game_design_file\` GAME_DESIGN.json 파싱 (캐릭터/적/무기/아이템/맵/이펙트/화면/사운드/마케팅)
+4. \`concept_md\` CONCEPT.md에서 에셋 ID 목록 추출 (테이블 첫 번째 컬럼)
 
-세 가지 모두 없으면 현재 폴더에 있는 파일만 나열합니다.
+모두 없으면 현재 폴더에 있는 파일만 나열합니다.
 
 Args:
   - assets_dir: 에셋 폴더 경로
   - required_assets: 필수 파일 목록 (상대 경로, 직접 지정)
   - spec_file: 필수 에셋 목록이 담긴 JSON 파일 경로
-  - concept_md: CONCEPT.md 경로 (에셋 ID 추출용)
+  - game_design_file: GAME_DESIGN.json 경로 (캐릭터/무기/맵/이펙트 등 자동 추출)
+  - concept_md: CONCEPT.md 경로 (에셋 ID 추출용, 레거시)
   - extensions: 파일 존재 확인 시 시도할 확장자 (기본: [png, json])
+  - requirements_filter: 게임 디자인 기반 필요도 필터 (game_design_file 필요)
+    - "all": 모든 에셋 표시 (기본)
+    - "required_only": 필수(🔴) 에셋만 표시
+    - "required_and_recommended": 필수+권장(🔴🟡) 에셋만 표시
+    - "exclude_not_needed": 불필요(⛔) 에셋 제외하고 표시
 
 Returns:
-  누락 파일 목록과 완료율.`,
+  누락 파일 목록과 완료율. requirements_filter 지정 시 필요도 분석 정보 포함.`,
       inputSchema: z.object({
         assets_dir: z.string().min(1).describe("에셋 폴더 경로"),
         required_assets: z.array(z.string()).optional().describe("필수 파일 상대 경로 목록 (직접 지정)"),
         spec_file: z.string().optional().describe("required_assets 배열이 담긴 JSON 파일 경로"),
-        concept_md: z.string().optional().describe("CONCEPT.md 경로 (에셋 ID 자동 추출)"),
+        game_design_file: z.string().optional().describe("GAME_DESIGN.json 경로 (캐릭터/무기/맵/이펙트/사운드 자동 추출)"),
+        concept_md: z.string().optional().describe("CONCEPT.md 경로 (에셋 ID 자동 추출, 레거시)"),
         extensions: z.array(z.string()).default(["png", "json"]).describe("존재 확인 시 시도할 확장자"),
+        requirements_filter: z.enum(["all", "required_only", "required_and_recommended", "exclude_not_needed"])
+          .optional()
+          .describe("필요도 필터 (game_design_file 필요): all | required_only | required_and_recommended | exclude_not_needed"),
       }).strict(),
       annotations: {
         readOnlyHint: true,
@@ -439,8 +521,17 @@ Returns:
             isError: true,
           };
         }
+      } else if (params.game_design_file || fs.existsSync(path.resolve(DEFAULT_GAME_DESIGN_FILE))) {
+        // 3. GAME_DESIGN.json에서 에셋 ID 추출 (자동 감지 포함)
+        const designPath = path.resolve(params.game_design_file || DEFAULT_GAME_DESIGN_FILE);
+        const ids = extractAssetIdsFromGameDesign(designPath);
+        for (const id of ids) {
+          for (const ext of params.extensions) {
+            required.push(`${id}.${ext}`);
+          }
+        }
       } else if (params.concept_md) {
-        // 3. CONCEPT.md에서 에셋 ID 추출
+        // 4. CONCEPT.md에서 에셋 ID 추출 (레거시)
         const conceptPath = path.resolve(params.concept_md);
         const ids = extractAssetIdsFromConceptMd(conceptPath);
         // ID만 있으므로 extensions를 조합해서 파일 후보 생성
@@ -469,10 +560,88 @@ Returns:
         };
       }
 
+      // ── requirements 분석 (game_design_file + requirements_filter 시) ──────
+      let requirementsAnalysis: {
+        active_mechanics: string[];
+        summary: Record<string, number>;
+        not_needed_patterns: string[];
+        filter_applied: string;
+      } | null = null;
+      let filteredRequired = required;
+
+      if (params.requirements_filter && params.requirements_filter !== "all") {
+        const designPath = path.resolve(params.game_design_file || DEFAULT_GAME_DESIGN_FILE);
+        if (fs.existsSync(designPath)) {
+          try {
+            const design = JSON.parse(fs.readFileSync(designPath, "utf-8")) as GameDesign;
+            const reqs = analyzeAssetRequirements(design);
+
+            // 카테고리 ID → 파일명 패턴 매핑
+            const CAT_PATTERNS: Record<string, RegExp> = {
+              sprite_movement:   /walk|run|jump|dash|move/i,
+              sprite_combat:     /attack|hurt|die|hit|slash|shoot/i,
+              parallax_bg:       /parallax|parallax_far|parallax_mid|parallax_near/i,
+              tileset:           /tileset|tile_single/i,
+              weapon_icons:      /weapon|sword|gun|bow|spear/i,
+              inventory:         /item|potion|chest|coin/i,
+              portraits:         /portrait|bust|full_body/i,
+              char_cards:        /char_card|character_card/i,
+              char_select_screen:/char_select|character_select/i,
+              hud_combat:        /hud|hp_bar|stamina|ammo/i,
+              tutorial_overlays: /tutorial|overlay|guide/i,
+              effects_combat:    /effect.*attack|slash_fx|impact/i,
+              gacha_ui:          /gacha|rarity|pull/i,
+              card_ui:           /card_frame|deck/i,
+            };
+
+            // 각 에셋의 카테고리 및 필요도 판정
+            const getLevel = (fileName: string): RequirementLevel => {
+              const baseName = path.basename(fileName, path.extname(fileName)).toLowerCase();
+              for (const [catId, pattern] of Object.entries(CAT_PATTERNS)) {
+                if (pattern.test(baseName)) {
+                  const cat = reqs.categories.find(c => c.category_id === catId);
+                  if (cat) return cat.level;
+                }
+              }
+              return "optional"; // 매핑 없으면 선택적
+            };
+
+            const not_needed_patterns = reqs.categories
+              .filter(c => c.level === "not_needed")
+              .map(c => c.category_id);
+
+            requirementsAnalysis = {
+              active_mechanics: reqs.active_mechanics,
+              summary: reqs.summary as unknown as Record<string, number>,
+              not_needed_patterns,
+              filter_applied: params.requirements_filter,
+            };
+
+            // 필터 적용
+            if (params.requirements_filter === "required_only") {
+              filteredRequired = required.filter(f => {
+                const lvl = getLevel(f);
+                return lvl === "required";
+              });
+            } else if (params.requirements_filter === "required_and_recommended") {
+              filteredRequired = required.filter(f => {
+                const lvl = getLevel(f);
+                return lvl === "required" || lvl === "recommended";
+              });
+            } else if (params.requirements_filter === "exclude_not_needed") {
+              filteredRequired = required.filter(f => {
+                const lvl = getLevel(f);
+                return lvl !== "not_needed";
+              });
+            }
+          } catch { /* 필터 실패 시 전체 목록 사용 */ }
+        }
+      }
+
       const missing: string[] = [];
       const present: string[] = [];
 
-      for (const rel of required) {
+      for (const rel of filteredRequired) {
         const fullPath = path.join(assetsDir, rel);
         if (fs.existsSync(fullPath)) {
           present.push(rel);
@@ -481,18 +650,24 @@ Returns:
         }
       }
 
-      const output = {
+      const output: Record<string, unknown> = {
         assets_dir: assetsDir,
         source: params.required_assets
           ? "direct"
           : params.spec_file
           ? "spec_file"
+          : (params.game_design_file || fs.existsSync(path.resolve(DEFAULT_GAME_DESIGN_FILE)))
+          ? "game_design_json"
           : "concept_md",
+        ...(requirementsAnalysis ? { requirements: requirementsAnalysis } : {}),
         summary: {
-          total_required: required.length,
+          total_required: filteredRequired.length,
+          total_before_filter: required.length,
           present: present.length,
           missing: missing.length,
-          completion: `${Math.round((present.length / required.length) * 100)}%`,
+          completion: filteredRequired.length > 0
+            ? `${Math.round((present.length / filteredRequired.length) * 100)}%`
+            : "N/A",
         },
         missing_files: missing,
         present_files: present,

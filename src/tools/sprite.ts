@@ -346,12 +346,19 @@ Returns:
 Gemini's image editing preserves the original character's colors, style, and proportions
 while only changing the pose/expression for the specified action.
 
+**Background Removal Method:**
+- chroma_key_bg = "magenta" (recommended): Composites on magenta (#FF00FF) before Gemini edit,
+  then removes it with color-distance algorithm. Better edge quality, fewer artifacts.
+- chroma_key_bg not set: Uses white background flood-fill (legacy, may damage light-colored edges).
+
 Args:
   - base_character_path (string): File path to the base character image (from asset_generate_character_base)
   - action (string): Action name — use a preset ("idle","walk","run","jump","attack","hurt","die")
                      or a custom action name with custom_prompt
   - custom_prompt (string, optional): Custom editing instruction (overrides preset action prompt)
                     Example: "Show character charging a magic fireball, arms glowing"
+  - chroma_key_bg (string, optional): Intermediate background color for Gemini edit. Recommended: "magenta".
+                    Leave empty to use legacy white background flood-fill.
   - character_name (string, optional): Character identifier for file naming
   - frame_index (number, optional): Frame number within an animation (default: 0)
   - output_dir (string, optional): Output directory
@@ -362,10 +369,12 @@ Returns:
         base_character_path: z.string().min(1).describe("Path to base character image file"),
         action: z.string().min(1).max(100).describe("Action name (idle/walk/run/jump/attack/hurt/die or custom)"),
         custom_prompt: z.string().max(2000).optional().describe("Custom edit instruction (overrides preset)"),
+        chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
+          .describe("Intermediate background color for Gemini edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
         character_name: z.string().max(100).optional().describe("Character identifier for file naming"),
         frame_index: z.number().int().min(0).max(99).default(0).describe("Frame number in animation"),
         edit_model: z.string().default("gemini-2.5-flash-image").describe("Gemini model for image editing (gemini-2.5-flash-image supports image input/output)"),
-        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255)"),
+        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Used only when chroma_key_bg is not set."),
         frame_padding: z.number().int().min(0).max(300).default(20).describe("Padding pixels added around each sprite (prevents edge cropping). Default: 20"),
         quality_check: z.boolean().default(false).describe("Claude 비전으로 품질 검증 후 문제 시 OpenAI gpt-image-1로 자동 재생성. 기본: false"),
         character_hint: z.string().max(500).optional().describe("품질 검증에 사용할 캐릭터 설명 (예: 'green alien in black armor')"),
@@ -391,10 +400,16 @@ Returns:
           ? ACTION_PROMPTS[params.action as DefaultAction]
           : params.action;
 
+        // 크로마키 배경 색상 결정 (마젠타 권장 — 캐릭터에 존재하지 않는 색상)
+        const chromaKeyColor = params.chroma_key_bg
+          ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
+          : undefined;
+
         const finalEditPrompt = params.custom_prompt ?? buildActionEditPrompt(poseDescription);
 
-        // Gemini는 투명 PNG를 받으면 체크 무늬로 렌더링함 → 순백 배경에 합성
-        const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, WHITE_BG_COLOR);
+        // Gemini는 투명 PNG를 받으면 체크 무늬로 렌더링함 → 단색 배경에 합성
+        const bgColor = chromaKeyColor ?? WHITE_BG_COLOR;
+        const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, bgColor);
         const compositedBase64 = compositedBuffer.toString("base64");
 
         const result = await editImageGemini({
@@ -404,9 +419,15 @@ Returns:
           model: params.edit_model,
         });
 
-        // 순백(#FFFFFF) flood-fill 제거 → 콘텐츠 크롭 → 패딩 추가
-        // 임계값 250: R,G,B 모두 >250인 픽셀(순백에 가까운 배경)만 제거, 캐릭터 보존
-        let processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
+        // 배경 제거: 크로마키 모드 (색상 거리 기반) 또는 순백 flood-fill
+        let processedBuffer: Buffer;
+        if (chromaKeyColor) {
+          // 마젠타 등 단색 배경 → 색상 거리 알고리즘으로 정밀 제거 (엣지 품질 우수)
+          processedBuffer = await processFrameBase64Chroma(result.base64, chromaKeyColor);
+        } else {
+          // 레거시: 순백 배경 flood-fill (임계값 기반)
+          processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
+        }
         if (params.frame_padding > 0) {
           const { addPaddingToBuffer } = await import("../utils/image-process.js");
           processedBuffer = await addPaddingToBuffer(processedBuffer, params.frame_padding);
@@ -509,8 +530,18 @@ from a base character image using Gemini image editing, then export in game engi
 All action sprites are generated via Gemini image edit to preserve the original
 character's colors, proportions, and art style.
 
+**Pose-First Pattern (권장):**
+  1. asset_generate_character_base → 베이스 캐릭터 생성
+  2. (선택) asset_generate_character_pose → 포즈 승인 이미지 생성
+  3. asset_generate_sprite_sheet (pose_image 파라미터) → 포즈 이미지 기준으로 시트 생성
+  pose_image를 제공하면 Gemini 편집 기준 이미지가 base_character_path 대신 pose_image로 교체됩니다.
+  base_character_path는 메타데이터/매니페스트 참조용으로만 사용됩니다.
+
 Args:
-  - base_character_path (string): File path to the base character image
+  - base_character_path (string): File path to the base character image (메타데이터 참조용)
+  - pose_image (string, optional): Pose-First 패턴용. 포즈 승인 이미지 경로.
+      제공 시 Gemini 편집 기준 이미지로 사용 (base_character_path 대체).
+      asset_generate_character_pose로 생성한 포즈 이미지를 넣으세요.
   - character_name (string): Character identifier for file naming and manifest
   - actions (string[], optional): Actions to generate.
       Presets: "idle", "walk", "run", "jump", "attack", "hurt", "die"
@@ -531,7 +562,11 @@ Returns:
   Individual frame files + composed sprite sheet(s) + engine-specific metadata files.
   Output: {output_dir}/sprites/{character_name}/`,
       inputSchema: z.object({
-        base_character_path: z.string().min(1).describe("Path to base character image file"),
+        base_character_path: z.string().min(1).describe("Path to base character image file (메타데이터/매니페스트 참조용. pose_image 제공 시 Gemini 편집에는 사용되지 않음)"),
+        pose_image: z.string().optional().describe(
+          "Pose-First 패턴: 포즈 승인 이미지 경로. 제공 시 Gemini 편집 기준 이미지로 사용 (base_character_path 대체). " +
+          "asset_generate_character_pose 결과물을 여기에 넣으세요."
+        ),
         character_name: z.string().min(1).max(100).describe("Character identifier"),
         prompt_file: z.string().optional().describe(
           "Path to sprite prompt JSON file. If provided, loads actions / custom_action_prompts / frames_per_action / edit_model from it. Explicit params take precedence."
@@ -552,8 +587,10 @@ Returns:
           .describe("Pixel padding between frames in the composed sheet"),
         frame_padding: z.number().int().min(0).max(300).default(20)
           .describe("Padding pixels added around each individual sprite frame (prevents edge cropping). Default: 20"),
+        chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
+          .describe("Intermediate background color for Gemini edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
         bg_threshold: z.number().int().min(0).max(255).default(240)
-          .describe("White background removal threshold (0-255)"),
+          .describe("White background removal threshold (0-255). Used only when chroma_key_bg is not set."),
         quality_check: z.boolean().default(false)
           .describe("각 프레임을 Claude 비전으로 품질 검증. 미달 시 OpenAI gpt-image-1로 자동 재생성. 기본: false"),
         character_hint: z.string().max(500).optional()
@@ -644,7 +681,7 @@ Returns:
         fileConfig.settings?.edit_model ??
         "gemini-2.5-flash-image";
 
-      // 원본 이미지 읽기
+      // 원본 이미지 읽기 (메타데이터용)
       let origBase64: string;
       let origMime: string;
       try {
@@ -658,13 +695,32 @@ Returns:
         };
       }
 
-      // Gemini 전송 전: 투명 PNG를 순백 배경 위에 합성 (체크무늬 방지)
+      // 크로마키 배경 결정 (마젠타 권장 — 엣지 품질 우수)
+      const sheetChromaKeyColor = params.chroma_key_bg
+        ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
+        : undefined;
+
+      // Pose-First 패턴: pose_image가 있으면 그걸 Gemini 편집 기준으로 사용
+      // pose_image 없으면 base_character_path 사용 (기존 동작)
+      const editSourcePath = params.pose_image ?? params.base_character_path;
+      const poseFirstMode = !!params.pose_image;
+
+      // Gemini 전송 전: 투명 PNG를 단색 배경 위에 합성 (체크무늬 방지)
+      const sheetBgColor = sheetChromaKeyColor ?? WHITE_BG_COLOR;
       let compositedBase64 = origBase64;
       try {
-        const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, WHITE_BG_COLOR);
+        const compositedBuffer = await compositeOntoSolidBg(editSourcePath, sheetBgColor);
         compositedBase64 = compositedBuffer.toString("base64");
       } catch (_) {
-        // 합성 실패 시 원본 그대로 사용
+        // 합성 실패 시 원본 그대로 사용 (base_character_path 폴백)
+        if (poseFirstMode) {
+          try {
+            const fallbackBuffer = await compositeOntoSolidBg(params.base_character_path, sheetBgColor);
+            compositedBase64 = fallbackBuffer.toString("base64");
+          } catch (_2) {
+            // base64 원본 그대로
+          }
+        }
       }
 
       const manifest: SpriteSheetManifest = {
@@ -674,7 +730,8 @@ Returns:
         animations: {},
         created_at: new Date().toISOString(),
         provider: "gemini-edit",
-      };
+        ...(poseFirstMode ? { pose_image_path: path.resolve(editSourcePath) } : {}),
+      } as SpriteSheetManifest & { pose_image_path?: string };
 
       const results: Array<{
         action: string;
@@ -715,8 +772,13 @@ Returns:
               model: effectiveEditModel,
             });
 
-            // 순백(#FFFFFF) flood-fill 제거 → 콘텐츠 크롭 → 패딩 추가
-            let processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
+            // 배경 제거: 크로마키 모드 또는 순백 flood-fill
+            let processedBuffer: Buffer;
+            if (sheetChromaKeyColor) {
+              processedBuffer = await processFrameBase64Chroma(result.base64, sheetChromaKeyColor);
+            } else {
+              processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
+            }
             if (params.frame_padding > 0) {
               const { addPaddingToBuffer } = await import("../utils/image-process.js");
               processedBuffer = await addPaddingToBuffer(processedBuffer, params.frame_padding);
@@ -870,6 +932,8 @@ Returns:
         character_name: params.character_name,
         sprite_dir: spriteDir,
         manifest_path: manifestPath,
+        pose_first_mode: poseFirstMode,
+        ...(poseFirstMode ? { pose_image_used: path.resolve(editSourcePath) } : {}),
         total_frames: results.length,
         succeeded,
         failed: results.length - succeeded,
@@ -948,6 +1012,8 @@ Returns:
         })).min(1).max(10).describe("List of weapons to generate sprites for"),
         actions: z.array(z.enum(["idle", "attack"])).default(["idle", "attack"])
           .describe("Actions to generate (default: both idle and attack)"),
+        chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
+          .describe("Intermediate background color for Gemini edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
         edit_model: z.string().default("gemini-2.5-flash-image")
           .describe("Gemini model for image editing"),
         output_dir: z.string().optional().describe("Root output directory"),
@@ -963,6 +1029,10 @@ Returns:
       try {
         const outputDir = params.output_dir ?? DEFAULT_OUTPUT_DIR;
         const safeCharId = params.character_id.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const weaponChromaKeyColor = params.chroma_key_bg
+          ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
+          : undefined;
+        const weaponBgColor = weaponChromaKeyColor ?? WHITE_BG_COLOR;
 
         // ── 계획 테이블 출력 ────────────────────────────────────────────────
         const planRows: Array<{ character: string; weapon: string; action: string; frame: string; description: string }> = [];
@@ -1017,8 +1087,8 @@ Returns:
               const editPrompt = buildActionEditPrompt(poseDesc);
 
               try {
-                // 투명 PNG → 흰 배경 합성 (Gemini 격자무늬 방지)
-                const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, WHITE_BG_COLOR);
+                // 투명 PNG → 단색 배경 합성 (Gemini 격자무늬 방지)
+                const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, weaponBgColor);
                 const compositedBase64 = compositedBuffer.toString("base64");
 
                 const editResult = await editImageGemini({
@@ -1028,8 +1098,13 @@ Returns:
                   model: params.edit_model,
                 });
 
-                // 흰 배경 제거 → 투명 PNG
-                let processedBuffer = await processFrameBase64(editResult.base64, WHITE_BG_THRESHOLD);
+                // 배경 제거: 크로마키 모드 또는 순백 flood-fill
+                let processedBuffer: Buffer;
+                if (weaponChromaKeyColor) {
+                  processedBuffer = await processFrameBase64Chroma(editResult.base64, weaponChromaKeyColor);
+                } else {
+                  processedBuffer = await processFrameBase64(editResult.base64, WHITE_BG_THRESHOLD);
+                }
                 processedBuffer = await (async () => {
                   const { addPaddingToBuffer } = await import("../utils/image-process.js");
                   return addPaddingToBuffer(processedBuffer, 20);

@@ -9,6 +9,23 @@ export const DEFAULT_CONCEPT_MD_FILE = process.env.CONCEPT_MD_FILE || "./CONCEPT
 export const DEFAULT_EXECUTION_PLAN_FILE = "./EXECUTION-PLAN.md";
 export const LOCAL_MUSIC_URL = process.env.LOCAL_MUSIC_SERVER_URL || "http://localhost:7860";
 
+// ─── GAME_DESIGN.json (새 3-경로 입력 시스템) ──────────────────────────────────
+export const DEFAULT_GAME_DESIGN_FILE = process.env.GAME_DESIGN_FILE || "./GAME_DESIGN.json";
+export const DEFAULT_ASSET_SIZE_SPEC_FILE = process.env.ASSET_SIZE_SPEC_FILE || "./asset_size_spec.json";
+
+// ─── Canon (마스터 레퍼런스 에셋) ────────────────────────────────────────────
+export const DEFAULT_CANON_DIR = process.env.CANON_DIR || "canon";
+export const DEFAULT_CANON_REGISTRY_FILE = "canon_registry.json";
+
+// ─── 비동기 Job 저장소 ────────────────────────────────────────────────────────
+export const DEFAULT_JOBS_DIR = ".jobs";
+
+// ─── 크로마키 상수 ────────────────────────────────────────────────────────────
+/** 마젠타 크로마키 색상 [R, G, B] — 투명 배경 생성 시 기본 배경색 */
+export const CHROMA_KEY_MAGENTA: [number, number, number] = [255, 0, 255];
+export const CHROMA_KEY_MAGENTA_HEX = "#FF00FF";
+export const DEFAULT_CHROMA_THRESHOLD = 35;
+
 // Supported image sizes for OpenAI
 export const OPENAI_IMAGE_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
 

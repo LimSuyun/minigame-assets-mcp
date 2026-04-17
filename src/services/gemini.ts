@@ -137,6 +137,62 @@ export async function generateVideoGemini(
   return { videoUri };
 }
 
+// ─── Vision 텍스트 분석 (Gemini 2.5 Flash) ───────────────────────────────────
+
+export interface GeminiVisionParams {
+  imageBase64: string;
+  imageMimeType: string;
+  prompt: string;
+  model?: string;
+  maxOutputTokens?: number;
+}
+
+/**
+ * Gemini 2.5 Flash Vision으로 이미지 분석 → 텍스트 반환.
+ * 스프라이트 품질 검증, 색상/스타일 분석 등에 사용.
+ */
+export async function analyzeImageGemini(
+  params: GeminiVisionParams
+): Promise<string> {
+  const apiKey = getApiKey();
+  // gemini-2.5-flash: 멀티모달 텍스트 출력 전용 (이미지 출력 없음)
+  const model = params.model || "gemini-2.5-flash";
+  const url = `${GEMINI_API_URL}/models/${model}:generateContent?key=${apiKey}`;
+
+  const response = await axios.post<{
+    candidates: Array<{
+      content: {
+        parts: Array<{ text?: string }>;
+      };
+    }>;
+  }>(
+    url,
+    {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { mimeType: params.imageMimeType, data: params.imageBase64 } },
+            { text: params.prompt },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseModalities: ["TEXT"],
+        maxOutputTokens: params.maxOutputTokens ?? 1024,
+      },
+    },
+    {
+      headers: { "Content-Type": "application/json" },
+      timeout: 60000,
+    }
+  );
+
+  const parts = response.data.candidates?.[0]?.content?.parts ?? [];
+  const textPart = parts.find((p) => p.text);
+  return textPart?.text ?? "";
+}
+
 // ─── Image Editing (Gemini 2.5 Flash Image) ───────────────────────────────────
 
 export interface GeminiImageEditParams {

@@ -27,6 +27,16 @@ import { registerLogoTools } from "./tools/logo.js";
 import { registerWorkflowTools } from "./tools/workflow.js";
 import { registerAssetUtilTools } from "./tools/asset-utils.js";
 import { registerThumbnailTools } from "./tools/thumbnail.js";
+import { registerCanonTools } from "./tools/canon.js";
+import { registerDesignDocTools } from "./tools/design-doc.js";
+import { registerUITools } from "./tools/ui.js";
+import { registerEffectTools } from "./tools/effects.js";
+import { registerCharacterExtTools } from "./tools/characters-ext.js";
+import { registerEnvironmentTools } from "./tools/environment.js";
+import { registerSoundExtTools } from "./tools/sound-ext.js";
+import { registerMarketingExtTools } from "./tools/marketing-ext.js";
+import { registerTutorialTools } from "./tools/tutorial.js";
+import { registerFontTools } from "./tools/font.js";
 
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
@@ -39,14 +49,24 @@ const server = new McpServer({
 registerConceptTools(server);
 registerWorkflowTools(server);
 registerProjectDetectorTools(server);
+registerDesignDocTools(server);
+registerCanonTools(server);
 registerImageTools(server);
 registerSpriteTools(server);
+registerUITools(server);
 registerEditTools(server);
 registerLogoTools(server);
 registerMusicTools(server);
 registerVideoTools(server);
 registerAssetUtilTools(server);
 registerThumbnailTools(server);
+registerEffectTools(server);
+registerCharacterExtTools(server);
+registerEnvironmentTools(server);
+registerSoundExtTools(server);
+registerMarketingExtTools(server);
+registerTutorialTools(server);
+registerFontTools(server);
 
 // ─── Transport ────────────────────────────────────────────────────────────────
 

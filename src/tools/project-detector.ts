@@ -10,6 +10,122 @@ import {
   getEngineRecommendations,
 } from "../utils/project-scanner.js";
 import type { GameEngine } from "../utils/project-scanner.js";
+import type { GameDesign, CanonRegistry } from "../types.js";
+
+// ─── 3-Path 감지 헬퍼 ─────────────────────────────────────────────────────────
+
+interface ThreePathResult {
+  path_recommendation: "A" | "B" | "C";
+  has_game_design: boolean;
+  game_design_valid: boolean;
+  game_design_missing_fields: string[];
+  game_name?: string;
+  preset?: string;
+  has_concept_md: boolean;
+  has_size_spec: boolean;
+  has_asset_plan: boolean;
+  canon_count: number;
+  generated_asset_count: number;
+}
+
+function detectThreePath(rootPath: string): ThreePathResult {
+  // GAME_DESIGN.json 감지
+  const gameDesignPath = path.join(rootPath, "GAME_DESIGN.json");
+  let hasGameDesign = false;
+  let gameDesignValid = false;
+  const missingFields: string[] = [];
+  let gameName: string | undefined;
+  let preset: string | undefined;
+
+  if (fs.existsSync(gameDesignPath)) {
+    hasGameDesign = true;
+    try {
+      const design = JSON.parse(fs.readFileSync(gameDesignPath, "utf-8")) as GameDesign;
+      if (!design.game_name) missingFields.push("game_name");
+      if (!design.art_style) missingFields.push("art_style");
+      if (!design.size_profile && !design.canvas_size) missingFields.push("size_profile 또는 canvas_size");
+      gameDesignValid = missingFields.length === 0;
+      gameName = design.game_name;
+      preset = design.size_profile;
+    } catch {
+      missingFields.push("JSON 파싱 오류");
+    }
+  }
+
+  // CONCEPT.md 감지
+  const conceptMdPath = path.join(rootPath, "CONCEPT.md");
+  const hasConceptMd = fs.existsSync(conceptMdPath);
+
+  // asset_size_spec.json 감지
+  const sizeSpecPaths = [
+    path.join(rootPath, "asset_size_spec.json"),
+    path.join(rootPath, "generated-assets", "asset_size_spec.json"),
+  ];
+  const hasSizeSpec = sizeSpecPaths.some((p) => fs.existsSync(p));
+
+  // FULL_ASSET_PLAN.md 감지
+  const assetPlanPaths = [
+    path.join(rootPath, "FULL_ASSET_PLAN.md"),
+    path.join(rootPath, "EXECUTION-PLAN.md"),
+  ];
+  const hasAssetPlan = assetPlanPaths.some((p) => fs.existsSync(p));
+
+  // Canon 수 집계
+  let canonCount = 0;
+  const canonRegistryPaths = [
+    path.join(rootPath, "canon", "canon_registry.json"),
+    path.join(rootPath, "generated-assets", "canon", "canon_registry.json"),
+  ];
+  for (const crPath of canonRegistryPaths) {
+    if (fs.existsSync(crPath)) {
+      try {
+        const registry = JSON.parse(fs.readFileSync(crPath, "utf-8")) as CanonRegistry;
+        canonCount = registry.entries?.length ?? 0;
+      } catch { /* ignore */ }
+      break;
+    }
+  }
+
+  // generated-assets 에셋 수 집계
+  let generatedAssetCount = 0;
+  const registryPaths = [
+    path.join(rootPath, "generated-assets", "asset_registry.json"),
+    path.join(rootPath, "asset_registry.json"),
+  ];
+  for (const rPath of registryPaths) {
+    if (fs.existsSync(rPath)) {
+      try {
+        const registry = JSON.parse(fs.readFileSync(rPath, "utf-8")) as { assets?: unknown[] };
+        generatedAssetCount = registry.assets?.length ?? 0;
+      } catch { /* ignore */ }
+      break;
+    }
+  }
+
+  // Path 추천
+  let pathRecommendation: "A" | "B" | "C";
+  if (hasGameDesign) {
+    pathRecommendation = "A";
+  } else if (hasConceptMd) {
+    pathRecommendation = "B";
+  } else {
+    pathRecommendation = "C";
+  }
+
+  return {
+    path_recommendation: pathRecommendation,
+    has_game_design: hasGameDesign,
+    game_design_valid: gameDesignValid,
+    game_design_missing_fields: missingFields,
+    game_name: gameName,
+    preset,
+    has_concept_md: hasConceptMd,
+    has_size_spec: hasSizeSpec,
+    has_asset_plan: hasAssetPlan,
+    canon_count: canonCount,
+    generated_asset_count: generatedAssetCount,
+  };
+}
 
 export function registerProjectDetectorTools(server: McpServer): void {
   // ── 1. 프로젝트 분석 ────────────────────────────────────────────────────────
@@ -17,24 +133,35 @@ export function registerProjectDetectorTools(server: McpServer): void {
     "asset_analyze_project",
     {
       title: "Analyze Game Project",
-      description: `Scan a game project directory to detect the engine, asset structure, and
-existing asset references in the code. Returns auto-configured settings for asset generation.
+      description: `Scan a game project directory to detect:
+1. **3-Path Entry System** (★ primary purpose):
+   - Path A: GAME_DESIGN.json found → ready to generate assets immediately
+   - Path B: CONCEPT.md found → auto-convert to GAME_DESIGN.json then proceed
+   - Path C: Neither found → run wizard to create GAME_DESIGN.json
 
-Detects engines: Cocos Creator, Unity, Phaser, Godot
-Scans code for: image loads, sprite references, audio loads, resource paths
+2. **Asset generation status**: GAME_DESIGN.json validity, canon count, generated asset count,
+   asset_size_spec.json presence, FULL_ASSET_PLAN.md presence.
+
+3. **Game engine detection** (secondary): Cocos Creator, Unity, Phaser, Godot
+   with recommended settings for sprite/image generation tools.
+
+Call this tool FIRST before any asset generation workflow. The path_recommendation
+field tells you which entry path to use.
 
 Args:
-  - project_path (string): Absolute or relative path to the game project root directory
-  - scan_asset_refs (boolean, optional): Whether to scan source code for asset references (default: true)
-  - max_scan_files (number, optional): Max source files to scan for references (default: 50)
+  - project_path (string): Absolute or relative path to the project root directory
+                           (defaults to current directory if ".")
+  - scan_asset_refs (boolean, optional): Scan source code for asset references (default: true)
+  - max_scan_files (number, optional): Max source files to scan (default: 50)
 
 Returns:
-  - detected engine + confidence + signals
-  - existing asset directories
-  - asset references found in code (what assets the project needs)
-  - recommended export_formats, output_dir, provider for use in sprite/image generation tools`,
+  - path_recommendation: "A" | "B" | "C" (3-path entry recommendation)
+  - has_game_design, game_design_valid, game_design_missing_fields
+  - has_concept_md, has_size_spec, has_asset_plan
+  - canon_count, generated_asset_count, game_name, preset
+  - engine detection + asset directories + recommended settings`,
       inputSchema: z.object({
-        project_path: z.string().min(1).describe("Path to the game project root directory"),
+        project_path: z.string().min(1).describe("Path to the project root directory (use '.' for current directory)"),
         scan_asset_refs: z.boolean().default(true).describe("Scan source code for asset references"),
         max_scan_files: z.number().int().min(1).max(200).default(50).describe("Max files to scan"),
       }).strict(),
@@ -97,7 +224,30 @@ Returns:
       const imageRefs = assetRefs.filter((r) => r.asset_type === "image").slice(0, 30);
       const audioRefs = assetRefs.filter((r) => r.asset_type === "audio").slice(0, 10);
 
+      // 3-Path 진입 시스템 감지
+      const threePathResult = detectThreePath(rootPath);
+
       const output = {
+        // ─── 3-Path 진입 시스템 (★ 에셋 생성 워크플로우 핵심) ──────────────
+        three_path_entry: {
+          path_recommendation: threePathResult.path_recommendation,
+          path_description: {
+            A: "GAME_DESIGN.json 발견 → 즉시 에셋 생성 가능",
+            B: "CONCEPT.md 발견 → 자동 변환 후 진행",
+            C: "문서 없음 → 위자드 실행 필요",
+          }[threePathResult.path_recommendation],
+          has_game_design: threePathResult.has_game_design,
+          game_design_valid: threePathResult.game_design_valid,
+          game_design_missing_fields: threePathResult.game_design_missing_fields,
+          game_name: threePathResult.game_name,
+          preset: threePathResult.preset,
+          has_concept_md: threePathResult.has_concept_md,
+          has_size_spec: threePathResult.has_size_spec,
+          has_asset_plan: threePathResult.has_asset_plan,
+          canon_count: threePathResult.canon_count,
+          generated_asset_count: threePathResult.generated_asset_count,
+        },
+        // ─── 게임 엔진 감지 ──────────────────────────────────────────────────
         project: {
           name: projectName,
           root_path: rootPath,

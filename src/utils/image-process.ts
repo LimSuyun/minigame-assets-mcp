@@ -315,6 +315,56 @@ export async function processFrameBase64Chroma(
   }
 }
 
+// ─── 타일 이음새 없애기 (Seamless Tiling) ────────────────────────────────────
+
+/**
+ * 이미지를 seamless tileable 텍스처로 변환.
+ * 표준 "offset" 기법 사용:
+ *   1. 이미지를 2×2로 배치
+ *   2. 중앙(w/2, h/2)에서 원본 크기만큼 크롭
+ * 결과: 타일링 시 가장자리가 이어지는 텍스처.
+ *
+ * @param imageBuffer  원본 이미지 Buffer (PNG/JPEG)
+ * @returns seamless PNG Buffer
+ */
+export async function makeSeamlessTileable(imageBuffer: Buffer): Promise<Buffer> {
+  const meta = await sharp(imageBuffer).metadata();
+  const w = meta.width ?? 256;
+  const h = meta.height ?? 256;
+
+  // 원본을 RGBA로 통일
+  const rgba = await sharp(imageBuffer).ensureAlpha().png().toBuffer();
+
+  // 2×2 모자이크 생성
+  const mosaic = await sharp({
+    create: {
+      width: w * 2,
+      height: h * 2,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 255 },
+    },
+  })
+    .composite([
+      { input: rgba, left: 0, top: 0 },
+      { input: rgba, left: w, top: 0 },
+      { input: rgba, left: 0, top: h },
+      { input: rgba, left: w, top: h },
+    ])
+    .png()
+    .toBuffer();
+
+  // 중앙(w/2, h/2)에서 원본 크기만큼 크롭 = offset 처리된 tileable 이미지
+  return sharp(mosaic)
+    .extract({
+      left: Math.floor(w / 2),
+      top: Math.floor(h / 2),
+      width: w,
+      height: h,
+    })
+    .png()
+    .toBuffer();
+}
+
 /**
  * Base64 이미지를 rembg로 배경 제거 → 콘텐츠 크롭 → 패딩 추가 → Buffer 반환.
  * 스프라이트 생성 파이프라인에서 Gemini 편집 결과 처리용.
