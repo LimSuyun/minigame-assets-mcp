@@ -136,7 +136,7 @@ Returns:
       inputSchema: z.object({
         prompt: z.string().min(1).max(4000).describe("Description of the image to generate"),
         asset_type: z.enum(ASSET_TYPES).default("sprite").describe("Type of game asset"),
-        model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1.5").describe("OpenAI image model: gpt-image-1.5 (default, fastest) | gpt-image-1 | gpt-image-1-mini (cheapest)"),
+        model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default, 2D 미니게임 최적) | gpt-image-1 | gpt-image-1.5 (고디테일)"),
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).default("1024x1024").describe("Generation size"),
         quality: z.enum(["low", "medium", "high", "auto"]).default("auto").describe("Generation quality"),
         background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG"),
@@ -354,7 +354,7 @@ Returns:
           prompt: z.string().min(1).max(4000).describe("Image description"),
           asset_type: z.enum(ASSET_TYPES).describe("Asset type"),
           provider: z.enum(["openai", "gemini"]).optional().describe("AI provider (auto-selected by asset_type if omitted: background→gemini, others→openai)"),
-          model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1.5").describe("OpenAI image model: gpt-image-1.5 (default) | gpt-image-1 | gpt-image-1-mini (cheapest)"),
+          model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default) | gpt-image-1 | gpt-image-1.5 (고디테일)"),
           size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).optional().describe("Size (OpenAI only)"),
           quality: z.enum(["low", "medium", "high", "auto"]).optional().describe("Quality (default: medium)"),
           aspect_ratio: z.enum(["1:1", "3:4", "4:3", "9:16", "16:9"]).optional().describe("Aspect ratio (Gemini only)"),
@@ -401,7 +401,7 @@ Returns:
         const finalPrompt = provider === "gemini"
           ? adaptPromptForGemini(styledPrompt)
           : buildEnrichedPrompt(styledPrompt, spec.asset_type, conceptHint);
-        const model = spec.model ?? "gpt-image-1.5";
+        const model = spec.model ?? "gpt-image-1-mini";
 
         try {
           let base64: string;

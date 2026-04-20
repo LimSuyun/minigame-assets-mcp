@@ -239,7 +239,7 @@ Returns:
         let base64: string;
         let mimeType: string;
 
-        const effectiveModel = params.model ?? "gpt-image-1.5";
+        const effectiveModel = params.model ?? "gpt-image-1-mini";
         const isGptImage1 = effectiveModel.startsWith("gpt-image-1") || !params.model;
 
         if (params.provider === "gemini") {

@@ -10,8 +10,8 @@ import type { OpenAIImageResponse } from "../types.js";
 
 export type OpenAIImageModel = "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
 
-/** 기본 이미지 생성 모델 (gpt-image-1.5: 4× 속도, 20% 저렴, 고품질) */
-export const DEFAULT_OPENAI_IMAGE_MODEL: OpenAIImageModel = "gpt-image-1.5";
+/** 기본 이미지 생성 모델 (gpt-image-1-mini: 2D 미니게임 에셋에 최적, 단순 스타일, 저비용) */
+export const DEFAULT_OPENAI_IMAGE_MODEL: OpenAIImageModel = "gpt-image-1-mini";
 
 // ─── 공통 헤더 ────────────────────────────────────────────────────────────────
 
