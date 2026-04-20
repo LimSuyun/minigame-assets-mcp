@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
-import { DEFAULT_OUTPUT_DIR } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE } from "../constants.js";
 import { editImageGemini, analyzeImageGemini } from "../services/gemini.js";
 import {
   loadCanonRegistry,
@@ -1284,8 +1284,9 @@ Returns:
           `Game character: ${params.character_description}.`,
           `Art style: ${artStyle}.`,
           `Pose: ${poseDesc}, ${directionDesc}.`,
-          "Magenta (#FF00FF) solid background. Full body visible. Single character only.",
-          "Clean pixel-art or 2D game sprite style. No text, no UI elements.",
+          "Magenta (#FF00FF) solid background. Full body visible from head to toe with generous margin. Single character only.",
+          "Clean pixel-art or 2D game sprite style. No UI elements.",
+          NO_TEXT_IN_IMAGE,
         ].join(" ");
 
         const result = await generateImageOpenAI({
@@ -1337,6 +1338,165 @@ Returns:
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: handleApiError(error, "Generate Character Pose") }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── asset_generate_character_views: 4방향 베이스 일괄 생성 ────────────────
+  server.registerTool(
+    "asset_generate_character_views",
+    {
+      title: "Generate Character 4-Direction Base Views",
+      description: `Generate front / left / right / back base views of a character in one call.
+
+Each direction is generated sequentially using gpt-image-1 with a magenta (#FF00FF) chroma-key
+background so backgrounds can be removed cleanly afterward.
+
+Typical workflow:
+  1. asset_generate_character_views   ← this tool (generates 4 base views)
+  2. asset_generate_sprite_sheet      ← pass each view's file_path as pose_image
+
+Args:
+  - character_description (string): Full character description
+  - canon_id (string, optional): Canon entry to use as style reference
+  - directions (string[], optional): Subset of directions to generate (default: all 4)
+  - pose (string, optional): Base pose for all views — "idle" | "walk" | "run" | "attack" | "custom" (default: "idle")
+  - pose_description (string, optional): Required when pose="custom"
+  - art_style (string, optional): Art style override
+  - output_dir (string, optional): Output directory
+
+Returns:
+  Object with file_path for each generated direction, plus failed list if any errors.`,
+      inputSchema: z.object({
+        character_description: z.string().min(5).max(2000).describe("Character description"),
+        canon_id: z.string().optional().describe("Canon entry ID for style reference"),
+        directions: z.array(z.enum(["front", "left", "right", "back"]))
+          .default(["front", "left", "right", "back"])
+          .describe("Directions to generate (default: all 4)"),
+        pose: z.enum(["idle", "walk", "run", "attack", "custom"]).default("idle")
+          .describe("Base pose for all views"),
+        pose_description: z.string().max(500).optional()
+          .describe("Pose detail when pose='custom'"),
+        art_style: z.string().max(500).optional().describe("Art style override"),
+        output_dir: z.string().optional().describe("Output directory"),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        const { generateImageOpenAI } = await import("../services/openai.js");
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+
+        // Canon 스타일 참조 로드
+        let styleContext = "";
+        if (params.canon_id) {
+          const canon = getCanonEntry(params.canon_id, outputDir);
+          if (canon) {
+            styleContext = canon.art_style || canon.description.slice(0, 200);
+          }
+        }
+        const artStyle = params.art_style || styleContext || "2D game character, clear outlines, clean cartoon style";
+
+        const poseDesc = params.pose === "custom"
+          ? (params.pose_description || "standing neutral")
+          : `${params.pose} pose`;
+
+        const DIRECTION_LABELS: Record<string, string> = {
+          front: "facing directly forward toward the viewer, full front view",
+          left:  "facing directly left (side profile), full left side view",
+          right: "facing directly right (side profile), full right side view",
+          back:  "viewed from directly behind, full back view",
+        };
+
+        const results: Record<string, {
+          success: boolean;
+          file_path?: string;
+          asset_id?: string;
+          error?: string;
+        }> = {};
+
+        for (const direction of params.directions) {
+          try {
+            const directionDesc = DIRECTION_LABELS[direction];
+            const prompt = [
+              `Game character: ${params.character_description}.`,
+              `Art style: ${artStyle}.`,
+              `Pose: ${poseDesc}, ${directionDesc}.`,
+              "Full body completely visible from top of head to feet, with generous margin on all sides.",
+              "Character occupies center 60% of image height.",
+              "Magenta (#FF00FF) solid background — uniform flat color, no gradients, no shadows.",
+              "Single character only. Clean 2D game sprite style.",
+              NO_TEXT_IN_IMAGE,
+            ].join(" ");
+
+            const result = await generateImageOpenAI({
+              prompt,
+              model: "gpt-image-1",
+              size: "1024x1024",
+              quality: "high",
+              background: "opaque",
+            });
+
+            const poseSafe = params.pose.replace(/[^a-zA-Z0-9_-]/g, "_");
+            const fileName = `char_base_${poseSafe}_${direction}.png`;
+            const filePath = buildAssetPath(outputDir, "characters/views", fileName);
+            ensureDir(path.dirname(filePath));
+            saveBase64File(result.base64, filePath);
+
+            const asset: GeneratedAsset = {
+              id: generateAssetId(),
+              type: "image",
+              asset_type: "character_pose",
+              provider: "openai",
+              prompt,
+              file_path: filePath,
+              file_name: fileName,
+              mime_type: "image/png",
+              created_at: new Date().toISOString(),
+              metadata: {
+                pose: params.pose,
+                direction,
+                canon_reference: params.canon_id,
+                chroma_key: "#FF00FF",
+                workflow: "4-direction-base",
+              },
+            };
+            saveAssetToRegistry(asset, outputDir);
+
+            results[direction] = { success: true, file_path: filePath, asset_id: asset.id };
+          } catch (dirErr) {
+            results[direction] = {
+              success: false,
+              error: dirErr instanceof Error ? dirErr.message : String(dirErr),
+            };
+          }
+        }
+
+        const succeeded = Object.values(results).filter(r => r.success).length;
+        const failed = Object.values(results).filter(r => !r.success).length;
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({
+            success: succeeded > 0,
+            total: params.directions.length,
+            succeeded,
+            failed,
+            views: results,
+            chroma_key: "#FF00FF",
+            next_steps: Object.entries(results)
+              .filter(([, r]) => r.success)
+              .map(([dir, r]) => ({
+                direction: dir,
+                file_path: r.file_path,
+                next: `asset_generate_sprite_sheet(base_character_path=<base>, pose_image="${r.file_path}")`,
+              })),
+          }, null, 2) }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Generate Character Views") }],
           isError: true,
         };
       }

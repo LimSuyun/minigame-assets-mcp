@@ -14,7 +14,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_OUTPUT_DIR } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
 import { editImageOpenAI } from "../services/openai.js";
@@ -174,7 +174,8 @@ Returns:
           `Preserve every visual detail — same face, outfit, colors, accessories, and art style as the reference. ` +
           `Portrait framing: full body visible from head to feet, centered in frame. ` +
           `${bgPrompt}. ` +
-          `High quality game character portrait, clean illustration style.`;
+          `High quality game character portrait, clean illustration style. ` +
+          `${NO_TEXT_IN_IMAGE}`;
 
         // Generate full portrait via gpt-image-1 image edit
         const fullResult = await editImageOpenAI({
@@ -611,7 +612,8 @@ Returns:
               `CRITICAL: The part must be drawn on a 1024×1024 canvas at the exact position where it would ` +
               `appear on the character's body. The character body itself is NOT drawn — only this part. ` +
               `Transparent background. No other body parts, no character body, just the ${params.category} part. ` +
-              `${styleHint} Transparent PNG, isolated part only.`;
+              `${styleHint} Transparent PNG, isolated part only. ` +
+              `${NO_TEXT_IN_IMAGE}`;
 
             const result = await generateImageOpenAI({
               prompt,

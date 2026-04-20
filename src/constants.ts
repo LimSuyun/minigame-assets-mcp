@@ -26,6 +26,19 @@ export const CHROMA_KEY_MAGENTA: [number, number, number] = [255, 0, 255];
 export const CHROMA_KEY_MAGENTA_HEX = "#FF00FF";
 export const DEFAULT_CHROMA_THRESHOLD = 35;
 
+// ─── 이미지 생성 공통 프롬프트 제약 ──────────────────────────────────────────
+/**
+ * 모든 이미지 생성 프롬프트에 추가하는 텍스트 금지 지시어.
+ * AI가 의류·소품·배경 등 어디에도 한국어/중국어/일본어/영어 등
+ * 어떤 언어의 텍스트도 렌더링하지 않도록 강제한다.
+ */
+export const NO_TEXT_IN_IMAGE =
+  "CRITICAL — NO TEXT: Do NOT render any readable text, letters, numbers, words, or writing " +
+  "of ANY kind anywhere in the image — not on clothing, aprons, shirts, objects, signs, walls, " +
+  "props, or any surface. This includes Korean (한글), Chinese, Japanese, English, and every " +
+  "other script or alphabet. All surfaces must be completely plain with absolutely NO visible " +
+  "writing, labels, symbols, or inscriptions. Blank fabric only — no embroidery, no prints.";
+
 // Supported image sizes for OpenAI
 export const OPENAI_IMAGE_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
 

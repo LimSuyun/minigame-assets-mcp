@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { execFileSync } from "child_process";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, NO_TEXT_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini, editImageGemini } from "../services/gemini.js";
 import {
@@ -79,7 +79,8 @@ function buildActionEditPrompt(poseDescription: string, characterHint?: string):
     `The character's total height from feet to top of head must match the reference image. ` +
     `Keep the same camera distance and framing as the reference. ` +
     `${WHITE_BG_PROMPT}. ` +
-    `Full body visible including all accessories.`
+    `Full body visible including all accessories. ` +
+    `${NO_TEXT_IN_IMAGE}`
   );
 }
 
@@ -140,7 +141,8 @@ function buildBaseCharacterPrompt(
     `Full body completely visible — top of head to feet, all accessories included. ` +
     `Character occupies center 60% of image height with generous margin on all sides. ` +
     `Clean cartoon style, clear black outlines, flat colors, soft shading. No shadows on background. ` +
-    (conceptHint ? conceptHint : "")
+    (conceptHint ? conceptHint + " " : "") +
+    `${NO_TEXT_IN_IMAGE}`
   );
 }
 
