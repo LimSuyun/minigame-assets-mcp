@@ -203,7 +203,7 @@ Returns:
         character_name: z.string().min(1).max(100).describe("Character identifier (e.g., hero, enemy_slime)"),
         description: z.string().min(10).max(3000).describe("Detailed character appearance description"),
         provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
-        model: z.string().optional().describe("Model override: gpt-image-1 (native transparent PNG, recommended) | dall-e-3 | dall-e-2 (OpenAI) | imagen-4.0-generate-001 (Gemini)"),
+        model: z.string().optional().describe("Model override: gpt-image-1 (OpenAI, default) | imagen-4.0-generate-001 (Gemini)"),
         size: z.enum(["1024x1024", "1024x1792", "1536x1024", "1024x1536"]).default("1024x1024").describe("Image size (OpenAI only)"),
         aspect_ratio: z.enum(["1:1", "3:4"]).default("1:1").describe("Aspect ratio (Gemini only)"),
         bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Ignored when using gpt-image-1 or chroma_key_bg."),
@@ -253,11 +253,10 @@ Returns:
         } else {
           const r = await generateImageOpenAI({
             prompt,
-            model: (effectiveModel as "dall-e-3" | "dall-e-2" | "gpt-image-1"),
+            model: "gpt-image-1",
             size: params.size,
-            quality: isGptImage1 ? "high" : "hd",
-            style: isGptImage1 ? undefined : "natural",
-            background: isGptImage1 ? "transparent" : undefined,
+            quality: "high",
+            background: "transparent",
           });
           base64 = r.base64;
           mimeType = r.mimeType;

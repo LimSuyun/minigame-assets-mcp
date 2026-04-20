@@ -14,43 +14,27 @@ function getHeaders(): Record<string, string> {
 
 export interface OpenAIImageParams {
   prompt: string;
-  model?: "dall-e-3" | "dall-e-2" | "gpt-image-1";
+  model?: "gpt-image-1";
   size?: "1024x1024" | "1792x1024" | "1024x1792" | "1536x1024" | "1024x1536" | "auto";
-  quality?: "standard" | "hd" | "low" | "medium" | "high" | "auto";
-  style?: "vivid" | "natural";     // dall-e-3 only
-  background?: "transparent" | "opaque" | "auto";  // gpt-image-1 only
+  quality?: "low" | "medium" | "high" | "auto";
+  background?: "transparent" | "opaque" | "auto";
 }
 
 export async function generateImageOpenAI(
   params: OpenAIImageParams
 ): Promise<{ base64: string; mimeType: string; revisedPrompt: string }> {
-  const model = params.model || "dall-e-3";
-  const isGptImage1 = model === "gpt-image-1";
+  const model = params.model || "gpt-image-1";
 
   const body: Record<string, unknown> = {
     model,
     prompt: params.prompt,
     size: params.size || "1024x1024",
     n: 1,
+    background: params.background ?? "transparent",
   };
 
-  if (!isGptImage1) {
-    // gpt-image-1은 response_format 미지원 (항상 b64_json 반환)
-    body.response_format = "b64_json";
-  }
-
-  if (isGptImage1) {
-    // gpt-image-1: background, quality(low/medium/high/auto), no style
-    body.background = params.background ?? "transparent";
-    if (params.quality && ["low", "medium", "high", "auto"].includes(params.quality)) {
-      body.quality = params.quality;
-    }
-  } else {
-    // dall-e-3 / dall-e-2: quality(standard/hd), style
-    body.quality = params.quality || "standard";
-    if (model === "dall-e-3") {
-      body.style = params.style || "vivid";
-    }
+  if (params.quality && ["low", "medium", "high", "auto"].includes(params.quality)) {
+    body.quality = params.quality;
   }
 
   const response = await axios.post<OpenAIImageResponse>(
@@ -74,14 +58,14 @@ export async function generateImageOpenAI(
   };
 }
 
-// ─── Image Editing (gpt-image-1 / dall-e-2) ──────────────────────────────────
+// ─── Image Editing (gpt-image-1) ─────────────────────────────────────────────
 
 export interface OpenAIImageEditParams {
   imagePath?: string;       // 단일 이미지 경로 (하위 호환)
-  imagePaths?: string[];    // 복수 이미지 경로 (reference 스타일용, gpt-image-1만 지원)
+  imagePaths?: string[];    // 복수 이미지 경로 (reference 스타일용)
   prompt: string;
   maskPath?: string;        // 선택적 마스크 PNG (투명 영역을 편집)
-  model?: "gpt-image-1" | "dall-e-2";
+  model?: "gpt-image-1";
   size?: "1024x1024" | "1536x1024" | "1024x1536";
 }
 
@@ -102,14 +86,12 @@ export async function editImageOpenAI(
   }
 
   const model = params.model || "gpt-image-1";
-  const isGptImage1 = model === "gpt-image-1";
 
-  const buildForm = (useModel: string) => {
+  const buildForm = () => {
     const form = new FormData.default();
-    form.append("model", useModel);
+    form.append("model", model);
     form.append("prompt", params.prompt);
 
-    // 각 이미지를 image[] 배열로 첨부 (gpt-image-1 다중 이미지 지원)
     for (let i = 0; i < paths.length; i++) {
       form.append("image[]", fs.createReadStream(paths[i]), {
         filename: `image_${i}.png`,
@@ -124,48 +106,22 @@ export async function editImageOpenAI(
       });
     }
     form.append("n", "1");
-    // gpt-image-1은 response_format 미지원 (항상 b64_json 반환)
-    if (useModel !== "gpt-image-1") {
-      form.append("response_format", "b64_json");
-    }
     if (params.size) form.append("size", params.size);
     return form;
   };
 
-  let response: { data: OpenAIImageResponse };
-  try {
-    const form = buildForm(model);
-    response = await axios.post<OpenAIImageResponse>(
-      `${OPENAI_API_URL}/images/edits`,
-      form,
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          ...form.getHeaders(),
-        },
-        timeout: 120000,
-      }
-    );
-  } catch (err: unknown) {
-    // gpt-image-1가 이 계정에서 지원되지 않을 경우 dall-e-2로 폴백
-    const isModelError = isGptImage1 &&
-      err instanceof Error &&
-      (err.message.includes("dall-e-2") || err.message.includes("gpt-image-1"));
-    if (!isModelError) throw err;
-
-    const fallbackForm = buildForm("dall-e-2");
-    response = await axios.post<OpenAIImageResponse>(
-      `${OPENAI_API_URL}/images/edits`,
-      fallbackForm,
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          ...fallbackForm.getHeaders(),
-        },
-        timeout: 120000,
-      }
-    );
-  }
+  const form = buildForm();
+  const response = await axios.post<OpenAIImageResponse>(
+    `${OPENAI_API_URL}/images/edits`,
+    form,
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        ...form.getHeaders(),
+      },
+      timeout: 120000,
+    }
+  );
 
   const item = response.data.data[0];
   if (!item.b64_json) throw new Error("OpenAI image edit returned no data");

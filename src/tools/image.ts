@@ -12,7 +12,7 @@ import {
   saveAssetToRegistry,
   generateAssetId,
 } from "../utils/files.js";
-import { removeBackground, addPadding } from "../utils/image-process.js";
+import { addPadding } from "../utils/image-process.js";
 import { handleApiError } from "../utils/errors.js";
 import type { GameConcept, GeneratedAsset } from "../types.js";
 
@@ -125,8 +125,7 @@ Args:
   - prompt (string): Description of the image to generate
   - asset_type (string): Type of game asset (character, sprite, background, ui_element, icon, tile, effect, logo, other)
   - size (string, optional): Image size - "1024x1024" (default), "1792x1024" (landscape), "1024x1792" (portrait)
-  - quality (string, optional): "auto" (default) | "low" | "medium" | "high" (gpt-image-1) | "standard" | "hd" (dall-e-3)
-  - style (string, optional): "vivid" (default, more dramatic) or "natural" (more realistic, dall-e-3 only)
+  - quality (string, optional): "auto" (default) | "low" | "medium" | "high"
   - use_concept (boolean, optional): Whether to inject the current game concept into the prompt (default: true)
   - concept_file (string, optional): Path to game concept file (default: ./game-concept.json)
   - output_dir (string, optional): Output directory for the asset (default: ./generated-assets)
@@ -136,11 +135,10 @@ Returns:
       inputSchema: z.object({
         prompt: z.string().min(1).max(4000).describe("Description of the image to generate"),
         asset_type: z.enum(ASSET_TYPES).default("sprite").describe("Type of game asset"),
-        model: z.enum(["dall-e-3", "dall-e-2", "gpt-image-1"]).default("gpt-image-1").describe("OpenAI model: gpt-image-1 (native transparent BG, best quality) | dall-e-3 (1024/1792px, HD) | dall-e-2 (256/512/1024px, faster)"),
+        model: z.enum(["gpt-image-1"]).default("gpt-image-1").describe("OpenAI image model (gpt-image-1: native transparent PNG, best quality)"),
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).default("1024x1024").describe("Generation size"),
-        quality: z.enum(["standard", "hd", "low", "medium", "high", "auto"]).default("auto").describe("Quality: standard/hd (dall-e-3) | low/medium/high/auto (gpt-image-1)"),
-        style: z.enum(["vivid", "natural"]).default("vivid").describe("Visual style (dall-e-3 only)"),
-        background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type (gpt-image-1 only): transparent outputs native RGBA PNG"),
+        quality: z.enum(["low", "medium", "high", "auto"]).default("auto").describe("Generation quality"),
+        background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG"),
         use_concept: z.boolean().default(true).describe("Inject game concept into prompt"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -164,18 +162,12 @@ Returns:
           model: params.model,
           size: params.size,
           quality: params.quality,
-          style: params.style,
-          background: params.model === "gpt-image-1" ? params.background : undefined,
+          background: params.background,
         });
 
         const fileName = generateFileName(`${params.asset_type}_openai`, "png");
         const filePath = buildAssetPath(outputDir, "images", fileName);
         saveBase64File(result.base64, filePath);
-
-        // dall-e-3 / dall-e-2 는 투명 배경 미지원 → 생성 후 flood-fill 배경 제거 적용
-        if (params.model !== "gpt-image-1") {
-          await removeBackground(filePath, filePath, { threshold: 230 });
-        }
 
         // 캐릭터/스프라이트/무기 등 투명 배경 에셋은 여백 추가로 잘림 방지
         if (!NO_PADDING_TYPES.includes(params.asset_type)) {
@@ -196,7 +188,6 @@ Returns:
             revised_prompt: result.revisedPrompt,
             size: params.size,
             quality: params.quality,
-            style: params.style,
           },
         };
 
@@ -362,9 +353,9 @@ Returns:
           prompt: z.string().min(1).max(4000).describe("Image description"),
           asset_type: z.enum(ASSET_TYPES).describe("Asset type"),
           provider: z.enum(["openai", "gemini"]).optional().describe("AI provider (auto-selected by asset_type if omitted: background→gemini, others→openai)"),
-          model: z.enum(["gpt-image-1", "dall-e-3", "dall-e-2"]).default("gpt-image-1").describe("OpenAI model (default: gpt-image-1 — transparent PNG, no style param)"),
+          model: z.enum(["gpt-image-1"]).default("gpt-image-1").describe("OpenAI image model (gpt-image-1: native transparent PNG)"),
           size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).optional().describe("Size (OpenAI only)"),
-          quality: z.enum(["low", "medium", "high", "auto", "standard", "hd"]).optional().describe("Quality (default: medium for gpt-image-1)"),
+          quality: z.enum(["low", "medium", "high", "auto"]).optional().describe("Quality (default: medium)"),
           aspect_ratio: z.enum(["1:1", "3:4", "4:3", "9:16", "16:9"]).optional().describe("Aspect ratio (Gemini only)"),
         })).min(1).max(10).describe("List of image specs (max 10)"),
         concept_md: z.string().optional().describe("Path to CONCEPT.md — BASE STYLE PROMPT section prepended to every prompt"),
@@ -423,14 +414,12 @@ Returns:
             base64 = r.base64;
             mimeType = r.mimeType;
           } else {
-            // gpt-image-1: 투명 배경(RGBA PNG) 네이티브 지원, quality 기본 medium, style 파라미터 없음
-            // dall-e-3: quality standard/hd, style vivid/natural 지원
             const r = await generateImageOpenAI({
               prompt: finalPrompt,
-              model: model as "gpt-image-1" | "dall-e-3" | "dall-e-2",
+              model: "gpt-image-1",
               size: spec.size,
-              quality: spec.quality ?? (model === "gpt-image-1" ? "medium" : "standard"),
-              background: model === "gpt-image-1" ? "transparent" : undefined,
+              quality: spec.quality ?? "medium",
+              background: "transparent",
             });
             base64 = r.base64;
             mimeType = r.mimeType;
