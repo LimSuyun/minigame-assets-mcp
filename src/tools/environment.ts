@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_ASSET_SIZE_SPEC_FILE, NO_TEXT_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_ASSET_SIZE_SPEC_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
 import {
@@ -242,7 +242,7 @@ Args:
             `${params.style_description}. ` +
             `${layer.promptSuffix}. ` +
             `Horizontal seamless tileable, width ${layerW}px × height ${layerH}px. ` +
-            `Clean 2D game asset. ${NO_TEXT_IN_IMAGE}`;
+            `Clean 2D game asset. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           let rawBuffer: Buffer;
 
@@ -480,7 +480,7 @@ Args:
             `${params.theme} theme, ${params.tileset_type} perspective. ` +
             `${params.style_description}. ` +
             `Exactly ${T}×${T}px tile, seamlessly tileable, solid (non-transparent) background matching the tile type. ` +
-            `Clean pixel-art or cartoon style tile. ${NO_TEXT_IN_IMAGE}`;
+            `Clean pixel-art or cartoon style tile. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           try {
             const result = await generateImageOpenAI({
@@ -659,7 +659,7 @@ Args:
             `${params.theme} theme environment. ` +
             `${params.style_description}. ` +
             `Single isolated object, transparent background, no shadow on background. ` +
-            `Clean 2D game asset, full object visible, centered in frame. ${NO_TEXT_IN_IMAGE}`;
+            `Clean 2D game asset, full object visible, centered in frame. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           try {
             const result = await generateImageOpenAI({
@@ -826,7 +826,7 @@ Args:
               `${F}×${F}px sprite, transparent background, single object centered, ` +
               `no background fill, clean 2D game asset. ` +
               `State "${state}" must be clearly visually distinct (e.g. open vs closed, active vs inactive). ` +
-              `${NO_TEXT_IN_IMAGE}`;
+              `${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
             try {
               const openaiSize: "1024x1024" = "1024x1024";

@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { execFileSync } from "child_process";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, NO_TEXT_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini, editImageGemini } from "../services/gemini.js";
 import {
@@ -74,12 +74,14 @@ function buildActionEditPrompt(poseDescription: string, characterHint?: string):
     `same face, same body shape and proportions, same outfit and colors, same accessories and items. ` +
     `Only the pose or action changes. Nothing is added or removed. ` +
     (characterHint ? `Character description for reference: ${characterHint}. ` : "") +
-    `CRITICAL — scale and framing: The character must occupy exactly the same scale and proportion of the image as in the reference. ` +
-    `Do not zoom in or zoom out. Do not make the character larger or smaller. ` +
-    `The character's total height from feet to top of head must match the reference image. ` +
+    `CRITICAL — framing and body visibility: ` +
+    `The ENTIRE body from the very top of the head to the very tips of the feet MUST be fully visible — NEVER clip or cut off any body part. ` +
+    `If the action requires more space, make the character SMALLER to fit — do NOT crop. ` +
+    `The character must NOT exceed 70% of the total image height. ` +
+    `Leave at least 15% empty margin at the top and 15% at the bottom. ` +
     `Keep the same camera distance and framing as the reference. ` +
     `${WHITE_BG_PROMPT}. ` +
-    `Full body visible including all accessories. ` +
+    `${NO_SHADOW_IN_IMAGE} ` +
     `${NO_TEXT_IN_IMAGE}`
   );
 }
@@ -132,16 +134,17 @@ function buildBaseCharacterPrompt(
 ): string {
   const bgInstruction = chromaKeyColor
     ? `Solid flat ${chromaKeyColorToName(chromaKeyColor)} background — uniform single color, no gradients, no shadows on the background itself.`
-    : `Pure white background.`;
+    : `transparent background.`;
 
   return (
     `A single 2D game character sprite on a ${bgInstruction} ` +
+    `${CHIBI_STYLE_DEFAULT} ` +
     `Character: ${description}. ` +
     `Neutral front-facing stance, body relaxed, arms at sides. ` +
-    `Full body completely visible — top of head to feet, all accessories included. ` +
-    `Character occupies center 60% of image height with generous margin on all sides. ` +
-    `Clean cartoon style, clear black outlines, flat colors, soft shading. No shadows on background. ` +
-    (conceptHint ? conceptHint + " " : "") +
+    `ENTIRE full body visible — top of head to very tips of feet, all accessories included. ` +
+    `Character must NOT exceed 65% of image height — leave at least 15% margin at top and 20% at bottom. ` +
+    (conceptHint ? `Color palette reference: ${conceptHint} ` : "") +
+    `${NO_SHADOW_IN_IMAGE} ` +
     `${NO_TEXT_IN_IMAGE}`
   );
 }
@@ -236,8 +239,8 @@ Returns:
         let base64: string;
         let mimeType: string;
 
-        const effectiveModel = params.model;
-        const isGptImage1 = effectiveModel === "gpt-image-1";
+        const effectiveModel = params.model ?? "gpt-image-1";
+        const isGptImage1 = effectiveModel === "gpt-image-1" || !params.model;
 
         if (params.provider === "gemini") {
           const r = await generateImageGemini({
@@ -250,7 +253,7 @@ Returns:
         } else {
           const r = await generateImageOpenAI({
             prompt,
-            model: (effectiveModel as "dall-e-3" | "dall-e-2" | "gpt-image-1") || "gpt-image-1",
+            model: (effectiveModel as "dall-e-3" | "dall-e-2" | "gpt-image-1"),
             size: params.size,
             quality: isGptImage1 ? "high" : "hd",
             style: isGptImage1 ? undefined : "natural",

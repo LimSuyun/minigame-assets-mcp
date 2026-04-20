@@ -14,7 +14,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
 import {
@@ -259,7 +259,7 @@ Returns:
             `Single frame of ${params.style_description}, frame ${i + 1}/${frameCount}, ` +
             `pure black (#000000) background, bright vivid colors for additive blending in game engine, ` +
             `centered in frame, isolated effect particle or sprite, no UI, ` +
-            `${params.effect_type} effect style.${paletteHint} ${NO_TEXT_IN_IMAGE}`;
+            `${params.effect_type} effect style.${paletteHint} ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           const result = await generateImageOpenAI({
             prompt,
@@ -597,7 +597,7 @@ Returns:
               `A single game status effect icon for "${effect.name}": ${effect.description}. ` +
               `${typeHint}. ${styleHint} ` +
               `Transparent background, centered icon, ${iconSize}x${iconSize} pixel icon style, ` +
-              `clear and readable at small size, no border frame. ${NO_TEXT_IN_IMAGE}`;
+              `clear and readable at small size, no border frame. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
             const result = await generateImageOpenAI({
               prompt,

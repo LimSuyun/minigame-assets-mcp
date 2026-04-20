@@ -39,6 +39,18 @@ export const NO_TEXT_IN_IMAGE =
   "other script or alphabet. All surfaces must be completely plain with absolutely NO visible " +
   "writing, labels, symbols, or inscriptions. Blank fabric only — no embroidery, no prints.";
 
+export const NO_SHADOW_IN_IMAGE =
+  "CRITICAL — NO SHADOWS: Do NOT render any shadows of any kind — no drop shadow, no cast shadow, " +
+  "no ground shadow, no contact shadow, no ambient occlusion shadow. " +
+  "The character and all objects must appear completely shadow-free and flat on the background.";
+
+export const CHIBI_STYLE_DEFAULT =
+  "chibi art style: large round head (1/3 to 1/2 of total body height), " +
+  "short compact body with stubby arms and legs, big expressive eyes, exaggerated cute features. " +
+  "VIBRANT HIGH-SATURATION COLORS — bold vivid tones, rich and punchy. " +
+  "NOT pastel, NOT watercolor-washed, NOT muted, NOT soft. " +
+  "Thick clean black outlines (2-3px). High contrast. Flat cel-shading with minimal highlights.";
+
 // Supported image sizes for OpenAI
 export const OPENAI_IMAGE_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
 

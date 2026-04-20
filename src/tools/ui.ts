@@ -17,7 +17,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, DEFAULT_GAME_DESIGN_FILE, NO_TEXT_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, DEFAULT_GAME_DESIGN_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
 import {
@@ -514,6 +514,7 @@ Returns:
             typeMod + ".",
             styleHint ? `Game style context: ${styleHint}.` : "",
             "Transparent background. Single element centered. Clean game-ready art, high detail.",
+            NO_SHADOW_IN_IMAGE,
             NO_TEXT_IN_IMAGE,
           ].filter(Boolean).join(" ");
 
@@ -624,6 +625,7 @@ Returns:
               `State: ${STATE_MODIFIERS[state] || ""}${SIZE_SUFFIX[size] || ""}.`,
               styleHint ? `Game style: ${styleHint}.` : "",
               "Transparent background. Single button element only, centered. Clean game UI.",
+              NO_SHADOW_IN_IMAGE,
               NO_TEXT_IN_IMAGE,
             ].filter(Boolean).join(" ");
 
@@ -723,7 +725,7 @@ Returns:
 
         for (const element of params.elements) {
           const basePrompt = ELEMENT_PROMPTS[element] || `HUD element ${element}: ${params.style_description}. Transparent background.`;
-          const prompt = (styleHint ? `${basePrompt} Game style: ${styleHint}.` : basePrompt) + ` ${NO_TEXT_IN_IMAGE}`;
+          const prompt = (styleHint ? `${basePrompt} Game style: ${styleHint}.` : basePrompt) + ` ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           try {
             const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
@@ -829,6 +831,8 @@ Returns:
             `${BG_MODS[params.background_shape] || ""}${bgColor}.`,
             styleHint ? `Game style: ${styleHint}.` : "",
             "Single icon centered, square composition, clean and game-ready.",
+            NO_SHADOW_IN_IMAGE,
+            NO_TEXT_IN_IMAGE,
           ].filter(Boolean).join(" ");
 
           try {
@@ -1052,6 +1056,8 @@ Returns:
             `Popup type: ${desc}`,
             styleHint ? `Game art style: ${styleHint}.` : "",
             "Transparent background. No text or icons inside popup. Clean hollow interior. High quality 2D game UI art.",
+            NO_SHADOW_IN_IMAGE,
+            NO_TEXT_IN_IMAGE,
           ].filter(Boolean).join(" ");
 
           try {

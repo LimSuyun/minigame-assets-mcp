@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
-import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
 import { editImageGemini, analyzeImageGemini } from "../services/gemini.js";
 import {
   loadCanonRegistry,
@@ -1282,10 +1282,14 @@ Returns:
 
         const prompt = [
           `Game character: ${params.character_description}.`,
-          `Art style: ${artStyle}.`,
+          `${CHIBI_STYLE_DEFAULT}`,
+          `Art style override if specified: ${artStyle}.`,
           `Pose: ${poseDesc}, ${directionDesc}.`,
-          "Magenta (#FF00FF) solid background. Full body visible from head to toe with generous margin. Single character only.",
-          "Clean pixel-art or 2D game sprite style. No UI elements.",
+          "Magenta (#FF00FF) solid background — uniform flat color, no gradients.",
+          "ENTIRE full body completely visible from very top of head to very tips of feet — NEVER clip or cut off any body part.",
+          "Character must NOT exceed 65% of image height. Leave at least 15% margin at top and 20% at bottom.",
+          "Single character only. No UI elements.",
+          NO_SHADOW_IN_IMAGE,
           NO_TEXT_IN_IMAGE,
         ].join(" ");
 
@@ -1422,12 +1426,14 @@ Returns:
             const directionDesc = DIRECTION_LABELS[direction];
             const prompt = [
               `Game character: ${params.character_description}.`,
-              `Art style: ${artStyle}.`,
+              `${CHIBI_STYLE_DEFAULT}`,
+              `Art style override if specified: ${artStyle}.`,
               `Pose: ${poseDesc}, ${directionDesc}.`,
-              "Full body completely visible from top of head to feet, with generous margin on all sides.",
-              "Character occupies center 60% of image height.",
-              "Magenta (#FF00FF) solid background — uniform flat color, no gradients, no shadows.",
+              "ENTIRE full body completely visible from very top of head to very tips of feet — NEVER clip or cut off any body part.",
+              "Character must NOT exceed 65% of image height. Leave at least 15% margin at top and 20% at bottom.",
+              "Magenta (#FF00FF) solid background — uniform flat color, no gradients.",
               "Single character only. Clean 2D game sprite style.",
+              NO_SHADOW_IN_IMAGE,
               NO_TEXT_IN_IMAGE,
             ].join(" ");
 

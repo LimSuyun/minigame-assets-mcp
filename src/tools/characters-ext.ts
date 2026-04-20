@@ -14,7 +14,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
 import { editImageOpenAI } from "../services/openai.js";
@@ -170,11 +170,14 @@ Returns:
 
         const prompt =
           `Redraw this exact character as a high-quality portrait. ` +
+          `${CHIBI_STYLE_DEFAULT} ` +
           `Pose: ${POSE_PROMPTS[params.pose]}. ` +
           `Preserve every visual detail — same face, outfit, colors, accessories, and art style as the reference. ` +
-          `Portrait framing: full body visible from head to feet, centered in frame. ` +
+          `Portrait framing: ENTIRE full body visible from very top of head to very tips of feet — NEVER clip. ` +
+          `Character must NOT exceed 70% of image height. Leave at least 15% margin top and bottom. ` +
           `${bgPrompt}. ` +
           `High quality game character portrait, clean illustration style. ` +
+          `${NO_SHADOW_IN_IMAGE} ` +
           `${NO_TEXT_IN_IMAGE}`;
 
         // Generate full portrait via gpt-image-1 image edit
