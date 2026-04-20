@@ -265,8 +265,7 @@ Returns:
               color_scheme: scheme, custom_prompt: params.custom_prompt,
             });
             const r = await generateImageOpenAI({
-              prompt, model: "gpt-image-1",
-              size: "1024x1024", quality: "high", background: "opaque",
+              prompt, size: "1024x1024", quality: "high", background: "opaque",
             });
             base64 = r.base64;
             revisedPrompt = r.revisedPrompt;

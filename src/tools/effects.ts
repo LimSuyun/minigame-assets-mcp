@@ -263,7 +263,6 @@ Returns:
 
           const result = await generateImageOpenAI({
             prompt,
-            model: "gpt-image-1",
             size: "1024x1024",
             quality: "medium",
             background: "opaque",
@@ -601,7 +600,6 @@ Returns:
 
             const result = await generateImageOpenAI({
               prompt,
-              model: "gpt-image-1",
               size: "1024x1024",
               quality: "medium",
               background: "transparent",

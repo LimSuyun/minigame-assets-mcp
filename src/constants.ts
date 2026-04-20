@@ -1,6 +1,11 @@
 export const OPENAI_API_URL = "https://api.openai.com/v1";
 export const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta";
 
+// ─── OpenAI 이미지 모델 ───────────────────────────────────────────────────────
+/** gpt-image-1.5: 최신, 4× 속도, gpt-image-1 대비 20% 저렴 */
+export const OPENAI_IMAGE_MODELS = ["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"] as const;
+export type OpenAIImageModelConst = typeof OPENAI_IMAGE_MODELS[number];
+
 export const CHARACTER_LIMIT = 25000;
 
 export const DEFAULT_OUTPUT_DIR = process.env.ASSETS_OUTPUT_DIR || "./generated-assets";

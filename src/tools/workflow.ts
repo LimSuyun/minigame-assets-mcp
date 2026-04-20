@@ -416,7 +416,6 @@ Returns:
         try {
           const result = await generateImageOpenAI({
             prompt: finalPrompt,
-            model: "gpt-image-1",
             size: params.size,
             quality: params.quality,
             background: "transparent",
@@ -442,7 +441,6 @@ Returns:
             metadata: {
               weapon_id: weapon.id,
               weapon_name: weapon.name,
-              model: "gpt-image-1",
             },
           };
 

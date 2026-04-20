@@ -262,7 +262,6 @@ Args:
             const openaiSize = nearestOpenAISize(layerW, layerH);
             const result = await generateImageOpenAI({
               prompt,
-              model: "gpt-image-1",
               size: openaiSize,
               quality: "medium",
               background: "transparent",
@@ -485,7 +484,6 @@ Args:
           try {
             const result = await generateImageOpenAI({
               prompt,
-              model: "gpt-image-1",
               size: "1024x1024",
               quality: "medium",
               background: "opaque",
@@ -664,7 +662,6 @@ Args:
           try {
             const result = await generateImageOpenAI({
               prompt,
-              model: "gpt-image-1",
               size: "1024x1024",
               quality: "medium",
               background: "transparent",
@@ -832,7 +829,6 @@ Args:
               const openaiSize: "1024x1024" = "1024x1024";
               const result = await generateImageOpenAI({
                 prompt,
-                model: "gpt-image-1",
                 size: openaiSize,
                 quality: "medium",
                 background: "transparent",

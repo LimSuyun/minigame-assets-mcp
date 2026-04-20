@@ -135,7 +135,6 @@ Args:
             const prompt = `${params.style_description || "vibrant colorful game"} screenshot scene: ${screenshot.scene}, ${params.game_name} mobile game, high quality game artwork`;
             const result = await generateImageOpenAI({
               prompt,
-              model: "gpt-image-1",
               size: "1024x1536",
               quality: "high",
               background: "opaque",
@@ -277,7 +276,6 @@ Args:
           const bgPrompt = `${params.style_description || "vibrant game art"} featured banner background for ${params.game_name}, wide cinematic landscape, no text`;
           const bgResult = await generateImageOpenAI({
             prompt: bgPrompt,
-            model: "gpt-image-1",
             size: "1536x1024",
             quality: "high",
             background: "opaque",
@@ -304,7 +302,6 @@ Args:
           const prompt = `${params.style_description || "exciting vibrant game art"} featured banner for ${params.game_name} mobile game, wide horizontal composition, cinematic, high quality, no text`;
           const result = await generateImageOpenAI({
             prompt,
-            model: "gpt-image-1",
             size: "1536x1024",
             quality: "high",
             background: "opaque",
@@ -426,7 +423,6 @@ Args:
 
         const result = await generateImageOpenAI({
           prompt,
-          model: "gpt-image-1",
           size: "1024x1024",
           quality: "high",
           background: "opaque",

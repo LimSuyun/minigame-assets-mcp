@@ -357,7 +357,6 @@ Returns:
           const r = await editImageOpenAI({
             imagePaths: refPaths,
             prompt,
-            model: "gpt-image-1",
             size: "1536x1024",
           });
           base64 = r.base64;
@@ -371,7 +370,6 @@ Returns:
           // ── OpenAI gpt-image-1 wide ──
           const r = await generateImageOpenAI({
             prompt,
-            model: "gpt-image-1",
             size: "1792x1024",
             quality: params.quality,
             background: "opaque",

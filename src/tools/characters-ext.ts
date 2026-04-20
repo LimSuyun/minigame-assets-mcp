@@ -184,7 +184,6 @@ Returns:
         const fullResult = await editImageOpenAI({
           imagePath: resolvedBase,
           prompt,
-          model: "gpt-image-1",
           size: "1024x1024",
         });
 
@@ -620,7 +619,6 @@ Returns:
 
             const result = await generateImageOpenAI({
               prompt,
-              model: "gpt-image-1",
               size: "1024x1024",
               quality: "medium",
               background: "transparent",

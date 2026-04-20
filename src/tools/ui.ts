@@ -278,7 +278,6 @@ async function generateImage(
   const safeSize = validSizes.includes(size) ? size : "1024x1024";
   return generateImageOpenAI({
     prompt,
-    model: "gpt-image-1",
     size: safeSize as "1024x1024",
     quality: "high",
     background: "transparent",

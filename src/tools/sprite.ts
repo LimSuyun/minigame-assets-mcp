@@ -239,8 +239,8 @@ Returns:
         let base64: string;
         let mimeType: string;
 
-        const effectiveModel = params.model ?? "gpt-image-1";
-        const isGptImage1 = effectiveModel === "gpt-image-1" || !params.model;
+        const effectiveModel = params.model ?? "gpt-image-1.5";
+        const isGptImage1 = effectiveModel.startsWith("gpt-image-1") || !params.model;
 
         if (params.provider === "gemini") {
           const r = await generateImageGemini({
@@ -253,7 +253,6 @@ Returns:
         } else {
           const r = await generateImageOpenAI({
             prompt,
-            model: "gpt-image-1",
             size: params.size,
             quality: "high",
             background: "transparent",
@@ -454,7 +453,6 @@ Returns:
               const fallbackResult = await editImageOpenAI({
                 imagePath: params.base_character_path,
                 prompt: fallbackPoseDesc,
-                model: "gpt-image-1",
                 size: "1024x1024",
               });
               processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);
@@ -805,7 +803,6 @@ Returns:
                   const fallbackResult = await editImageOpenAI({
                     imagePath: params.base_character_path,
                     prompt: fallbackPrompt,
-                    model: "gpt-image-1",
                     size: "1024x1024",
                   });
                   processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);

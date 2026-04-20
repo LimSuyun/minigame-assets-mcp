@@ -3,8 +3,9 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, ASSET_TYPES, NO_PADDING_TYPES } from "../constants.js";
-import { generateImageOpenAI } from "../services/openai.js";
+import { generateImageOpenAI, generateImageWithResponses } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
+import { OPENAI_IMAGE_MODELS } from "../constants.js";
 import {
   buildAssetPath,
   generateFileName,
@@ -135,7 +136,7 @@ Returns:
       inputSchema: z.object({
         prompt: z.string().min(1).max(4000).describe("Description of the image to generate"),
         asset_type: z.enum(ASSET_TYPES).default("sprite").describe("Type of game asset"),
-        model: z.enum(["gpt-image-1"]).default("gpt-image-1").describe("OpenAI image model (gpt-image-1: native transparent PNG, best quality)"),
+        model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1.5").describe("OpenAI image model: gpt-image-1.5 (default, fastest) | gpt-image-1 | gpt-image-1-mini (cheapest)"),
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).default("1024x1024").describe("Generation size"),
         quality: z.enum(["low", "medium", "high", "auto"]).default("auto").describe("Generation quality"),
         background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG"),
@@ -159,7 +160,7 @@ Returns:
 
         const result = await generateImageOpenAI({
           prompt: enrichedPrompt,
-          model: params.model,
+          model: params.model as "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
           size: params.size,
           quality: params.quality,
           background: params.background,
@@ -353,7 +354,7 @@ Returns:
           prompt: z.string().min(1).max(4000).describe("Image description"),
           asset_type: z.enum(ASSET_TYPES).describe("Asset type"),
           provider: z.enum(["openai", "gemini"]).optional().describe("AI provider (auto-selected by asset_type if omitted: background→gemini, others→openai)"),
-          model: z.enum(["gpt-image-1"]).default("gpt-image-1").describe("OpenAI image model (gpt-image-1: native transparent PNG)"),
+          model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1.5").describe("OpenAI image model: gpt-image-1.5 (default) | gpt-image-1 | gpt-image-1-mini (cheapest)"),
           size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).optional().describe("Size (OpenAI only)"),
           quality: z.enum(["low", "medium", "high", "auto"]).optional().describe("Quality (default: medium)"),
           aspect_ratio: z.enum(["1:1", "3:4", "4:3", "9:16", "16:9"]).optional().describe("Aspect ratio (Gemini only)"),
@@ -400,7 +401,7 @@ Returns:
         const finalPrompt = provider === "gemini"
           ? adaptPromptForGemini(styledPrompt)
           : buildEnrichedPrompt(styledPrompt, spec.asset_type, conceptHint);
-        const model = spec.model ?? "gpt-image-1";
+        const model = spec.model ?? "gpt-image-1.5";
 
         try {
           let base64: string;
@@ -416,7 +417,6 @@ Returns:
           } else {
             const r = await generateImageOpenAI({
               prompt: finalPrompt,
-              model: "gpt-image-1",
               size: spec.size,
               quality: spec.quality ?? "medium",
               background: "transparent",
@@ -548,7 +548,6 @@ Returns:
           const enrichedPrompt = buildEnrichedPrompt(params.prompt, params.asset_type, conceptHint);
           const r = await generateImageOpenAI({
             prompt: enrichedPrompt,
-            model: "gpt-image-1",
             quality: "medium",
             background: "transparent",
           });
@@ -598,6 +597,116 @@ Returns:
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: handleApiError(error, "Auto Image") }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Generate / Edit Image via Responses API ────────────────────────────────
+  server.registerTool(
+    "asset_generate_image_responses",
+    {
+      title: "Generate or Edit Image (OpenAI Responses API)",
+      description: `Generate or edit a game asset image using the OpenAI Responses API with the image_generation tool.
+
+This is the newer API approach:
+- Uses a text-capable model (gpt-4.1 etc.) + image_generation tool
+- action "generate": force new image creation
+- action "edit": edit/modify input images (inputImagePaths required)
+- action "auto": model decides based on context (default)
+
+Advantages over asset_generate_image_openai:
+- Multi-turn editing: iteratively refine images
+- Better prompt understanding via text reasoning model
+- Supports combining/editing multiple reference images
+
+Args:
+  - prompt (string): Image description or edit instruction
+  - action (string, optional): "generate" | "edit" | "auto" (default: "auto")
+  - input_image_paths (string[], optional): Reference/base image paths for edit action
+  - text_model (string, optional): Text reasoning model (default: "gpt-4.1")
+  - size (string, optional): Output size (default: "1024x1024")
+  - quality (string, optional): "low" | "medium" | "high" | "auto" (default: "high")
+  - background (string, optional): "transparent" | "opaque" | "auto" (default: "transparent")
+  - asset_type (string, optional): Asset type for file organization (default: "sprite")
+  - output_dir (string, optional): Output directory
+
+Returns:
+  File path of the generated/edited image`,
+      inputSchema: z.object({
+        prompt: z.string().min(1).max(8000).describe("Image description or edit instruction"),
+        action: z.enum(["auto", "generate", "edit"]).default("auto")
+          .describe("generate: force new | edit: modify input images | auto: model decides"),
+        input_image_paths: z.array(z.string()).optional()
+          .describe("Input image file paths (required for edit action)"),
+        text_model: z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"]).default("gpt-4.1")
+          .describe("Text reasoning model for the Responses API"),
+        size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).default("1024x1024")
+          .describe("Output image size"),
+        quality: z.enum(["low", "medium", "high", "auto"]).default("high")
+          .describe("Generation quality"),
+        background: z.enum(["transparent", "opaque", "auto"]).default("transparent")
+          .describe("Background type"),
+        asset_type: z.enum(ASSET_TYPES).default("sprite").describe("Asset type for file naming"),
+        output_dir: z.string().optional().describe("Output directory"),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+
+        const result = await generateImageWithResponses({
+          prompt: params.prompt,
+          textModel: params.text_model,
+          action: params.action,
+          inputImagePaths: params.input_image_paths,
+          size: params.size,
+          quality: params.quality,
+          background: params.background,
+        });
+
+        const fileName = generateFileName(`${params.asset_type}_responses`, "png");
+        const filePath = buildAssetPath(outputDir, "images", fileName);
+        saveBase64File(result.base64, filePath);
+
+        if (!NO_PADDING_TYPES.includes(params.asset_type)) {
+          await addPadding(filePath, filePath, 5);
+        }
+
+        const asset: GeneratedAsset = {
+          id: generateAssetId(),
+          type: "image",
+          asset_type: params.asset_type,
+          provider: `openai-responses/${params.text_model}`,
+          prompt: params.prompt,
+          file_path: filePath,
+          file_name: fileName,
+          mime_type: "image/png",
+          created_at: new Date().toISOString(),
+          metadata: {
+            revised_prompt: result.revisedPrompt,
+            action: params.action,
+            size: params.size,
+            quality: params.quality,
+            input_images: params.input_image_paths,
+          },
+        };
+        saveAssetToRegistry(asset, outputDir);
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({
+            success: true,
+            file_path: filePath,
+            asset_id: asset.id,
+            action: params.action,
+            revised_prompt: result.revisedPrompt,
+          }, null, 2) }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Responses Image") }],
           isError: true,
         };
       }
