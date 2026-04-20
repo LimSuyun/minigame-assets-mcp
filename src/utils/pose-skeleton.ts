@@ -313,3 +313,78 @@ export async function generateAllSkeletonPngs(
     }))
   );
 }
+
+/**
+ * 9개 스켈레톤을 하나의 가로 스트립 "액션 가이드" 이미지로 합성합니다.
+ *
+ * 레이아웃: [f00][sep][f01][sep]...[f08]  (1행 9열)
+ * 상단에 프레임 번호, 하단에 포즈 이름을 표시합니다.
+ *
+ * @param poses      포즈 배열 (기본: WAND_SWING_POSES)
+ * @param frameSize  각 스켈레톤 셀 크기(px), 기본 256
+ * @param sepWidth   프레임 간 구분선 너비(px), 기본 3
+ */
+export async function generateSkeletonActionGuide(
+  poses: PoseKeypoints[] = WAND_SWING_POSES,
+  frameSize: number = 256,
+  sepWidth: number = 3,
+): Promise<Buffer> {
+  const labelH = Math.round(frameSize * 0.16);  // 상단 레이블 영역 높이
+  const cellH = frameSize + labelH;
+  const totalW = poses.length * frameSize + (poses.length - 1) * sepWidth;
+  const totalH = cellH;
+
+  // 개별 스켈레톤 생성
+  const skelBuffers = await Promise.all(poses.map(p => generateSkeletonPng(p, frameSize)));
+
+  // 상단 레이블 SVG (프레임 번호 + 포즈명) 를 각 셀에 추가
+  const labeledCells = await Promise.all(
+    skelBuffers.map(async (skelBuf, i) => {
+      const pose = poses[i];
+      const fontSize = Math.max(10, Math.round(frameSize * 0.055));
+      const labelSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${frameSize}" height="${labelH}">
+        <rect width="${frameSize}" height="${labelH}" fill="#111111"/>
+        <text x="${Math.round(frameSize / 2)}" y="${Math.round(labelH * 0.52)}"
+          font-family="monospace" font-size="${fontSize}" font-weight="bold"
+          fill="#FFD700" text-anchor="middle" dominant-baseline="middle">${i + 1}</text>
+        <text x="${Math.round(frameSize / 2)}" y="${Math.round(labelH * 0.85)}"
+          font-family="monospace" font-size="${Math.round(fontSize * 0.72)}"
+          fill="#AAAAAA" text-anchor="middle" dominant-baseline="middle"
+        >${pose.label.replace(/^f\d+_/, "")}</text>
+      </svg>`;
+      const labelBuf = await sharp(Buffer.from(labelSvg)).png().toBuffer();
+
+      // 레이블 위 + 스켈레톤 아래로 수직 합성
+      return sharp({
+        create: { width: frameSize, height: cellH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 255 } },
+      })
+        .composite([
+          { input: labelBuf, left: 0, top: 0 },
+          { input: skelBuf, left: 0, top: labelH },
+        ])
+        .png()
+        .toBuffer();
+    })
+  );
+
+  // 구분선 버퍼
+  const sepBuf = await sharp({
+    create: { width: sepWidth, height: cellH, channels: 4, background: { r: 60, g: 60, b: 60, alpha: 255 } },
+  }).png().toBuffer();
+
+  // 가로로 합성
+  const composites: Array<{ input: Buffer; left: number; top: number }> = [];
+  for (let i = 0; i < labeledCells.length; i++) {
+    composites.push({ input: labeledCells[i], left: i * (frameSize + sepWidth), top: 0 });
+    if (i < labeledCells.length - 1) {
+      composites.push({ input: sepBuf, left: i * (frameSize + sepWidth) + frameSize, top: 0 });
+    }
+  }
+
+  return sharp({
+    create: { width: totalW, height: totalH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 255 } },
+  })
+    .composite(composites)
+    .png()
+    .toBuffer();
+}
