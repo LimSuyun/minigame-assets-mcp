@@ -712,4 +712,167 @@ Returns:
       }
     }
   );
+
+  // ── Compare Image Generation Models ────────────────────────────────────────
+  server.registerTool(
+    "asset_compare_models",
+    {
+      title: "Compare Image Generation Models",
+      description: `동일한 프롬프트로 여러 OpenAI 이미지 모델(및 선택적으로 Gemini)을 병렬 실행해 결과를 비교합니다.
+
+**비교 가능 모델:**
+- gpt-image-1.5 — 최신, 4× 빠름, 20% 저렴 (기본 포함)
+- gpt-image-1   — 표준 품질/가격 (기본 포함)
+- gpt-image-1-mini — 가장 저렴 (기본 포함)
+- Gemini Imagen — include_gemini: true 시 추가
+
+**반환값:** 각 모델의 생성 시간(ms), 파일 크기(KB), 저장 경로, 성공/실패 여부.
+같은 배치의 결과는 동일한 batch_id를 공유하므로 파일 탐색기에서 나란히 확인 가능.
+
+**비용 절감 팁:** quality를 "low" 또는 "medium"으로 설정하면 모델 간 스타일 차이만 빠르게 확인 가능.
+
+Args:
+  - prompt (string): 비교할 이미지 프롬프트
+  - models (string[], optional): 테스트할 OpenAI 모델 목록 (기본: 3개 전체)
+  - include_gemini (boolean, optional): Gemini Imagen도 포함 (기본: false)
+  - size (string, optional): 이미지 크기 (기본: "1024x1024")
+  - quality (string, optional): 생성 품질 — 비교 테스트는 "medium" 권장 (기본: "medium")
+  - background (string, optional): 배경 타입 (기본: "transparent")
+  - asset_type (string, optional): 에셋 타입 (파일 분류용, 기본: "sprite")
+  - output_dir (string, optional): 출력 디렉토리
+
+Returns:
+  각 모델의 결과(파일 경로, 생성 시간, 파일 크기) + 정렬된 요약`,
+      inputSchema: z.object({
+        prompt: z.string().min(1).max(4000)
+          .describe("비교할 이미지 프롬프트"),
+        models: z.array(z.enum(OPENAI_IMAGE_MODELS))
+          .default(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"])
+          .describe("테스트할 OpenAI 모델 목록"),
+        include_gemini: z.boolean().default(false)
+          .describe("Gemini Imagen도 비교에 포함"),
+        size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).default("1024x1024")
+          .describe("출력 이미지 크기"),
+        quality: z.enum(["low", "medium", "high", "auto"]).default("medium")
+          .describe("생성 품질 (비교 테스트는 medium 권장)"),
+        background: z.enum(["transparent", "opaque", "auto"]).default("transparent")
+          .describe("배경 타입"),
+        asset_type: z.enum(ASSET_TYPES).default("sprite")
+          .describe("에셋 타입 (파일 분류용)"),
+        output_dir: z.string().optional()
+          .describe("출력 디렉토리"),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+        const batchId = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+
+        type TaskDef = {
+          label: string;
+          fn: () => Promise<{ base64: string; mimeType: string }>;
+        };
+
+        const tasks: TaskDef[] = [];
+
+        for (const model of params.models) {
+          tasks.push({
+            label: model,
+            fn: () => generateImageOpenAI({
+              prompt: params.prompt,
+              model: model as "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+              size: params.size as "1024x1024" | "1536x1024" | "1024x1536",
+              quality: params.quality as "low" | "medium" | "high" | "auto",
+              background: params.background as "transparent" | "opaque" | "auto",
+            }).then(r => ({ base64: r.base64, mimeType: r.mimeType })),
+          });
+        }
+
+        if (params.include_gemini) {
+          const aspectRatio = params.size === "1536x1024" ? "16:9"
+            : params.size === "1024x1536" ? "9:16"
+            : "1:1";
+          tasks.push({
+            label: "gemini-imagen",
+            fn: () => generateImageGemini({ prompt: params.prompt, aspectRatio }),
+          });
+        }
+
+        type ModelResult = {
+          model: string;
+          success: boolean;
+          file_path?: string;
+          file_name?: string;
+          generation_ms?: number;
+          file_size_kb?: number;
+          error?: string;
+        };
+
+        const settled = await Promise.allSettled(
+          tasks.map(async (task): Promise<ModelResult> => {
+            const start = Date.now();
+            const r = await task.fn();
+            const ms = Date.now() - start;
+
+            const safeLabel = task.label.replace(/[^a-z0-9.-]/gi, "_");
+            const fileName = `compare_${params.asset_type}_${safeLabel}_${batchId}.png`;
+            const filePath = buildAssetPath(outputDir, "compare", fileName);
+            saveBase64File(r.base64, filePath);
+
+            if (!NO_PADDING_TYPES.includes(params.asset_type)) {
+              await addPadding(filePath, filePath, 5);
+            }
+
+            const stats = fs.statSync(filePath);
+            return {
+              model: task.label,
+              success: true,
+              file_path: filePath,
+              file_name: fileName,
+              generation_ms: ms,
+              file_size_kb: Math.round(stats.size / 1024),
+            };
+          })
+        );
+
+        const results: ModelResult[] = settled.map((s, i) => {
+          if (s.status === "fulfilled") return s.value;
+          return {
+            model: tasks[i].label,
+            success: false,
+            error: s.reason instanceof Error ? s.reason.message : String(s.reason),
+          };
+        });
+
+        const succeeded = results.filter(r => r.success).length;
+        const sortedBySpeed = [...results]
+          .filter(r => r.success)
+          .sort((a, b) => (a.generation_ms ?? 0) - (b.generation_ms ?? 0));
+
+        const output = {
+          success: true,
+          batch_id: batchId,
+          prompt: params.prompt,
+          total: tasks.length,
+          succeeded,
+          failed: tasks.length - succeeded,
+          results,
+          speed_ranking: sortedBySpeed.map((r, i) =>
+            `#${i + 1} ${r.model}: ${r.generation_ms}ms  ${r.file_size_kb}KB  →  ${r.file_path}`
+          ),
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Compare Models") }],
+          isError: true,
+        };
+      }
+    }
+  );
 }
