@@ -136,10 +136,10 @@ Returns:
       inputSchema: z.object({
         prompt: z.string().min(1).max(4000).describe("Description of the image to generate"),
         asset_type: z.enum(ASSET_TYPES).default("sprite").describe("Type of game asset"),
-        model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default, 2D 미니게임 최적) | gpt-image-1 | gpt-image-1.5 (고디테일)"),
+        model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default, 2D 미니게임 최적) | gpt-image-1 | gpt-image-1.5 (고디테일) | gpt-image-2 (4K·다국어 텍스트, 투명 배경 미지원 — transparent 요청 시 auto로 자동 강등)"),
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).default("1024x1024").describe("Generation size"),
         quality: z.enum(["low", "medium", "high", "auto"]).default("auto").describe("Generation quality"),
-        background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG"),
+        background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG (gpt-image-2는 미지원 → auto로 자동 강등, 크로마키 후처리 필요)"),
         use_concept: z.boolean().default(true).describe("Inject game concept into prompt"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -160,7 +160,7 @@ Returns:
 
         const result = await generateImageOpenAI({
           prompt: enrichedPrompt,
-          model: params.model as "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+          model: params.model,
           size: params.size,
           quality: params.quality,
           background: params.background,
@@ -354,7 +354,7 @@ Returns:
           prompt: z.string().min(1).max(4000).describe("Image description"),
           asset_type: z.enum(ASSET_TYPES).describe("Asset type"),
           provider: z.enum(["openai", "gemini"]).optional().describe("AI provider (auto-selected by asset_type if omitted: background→gemini, others→openai)"),
-          model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default) | gpt-image-1 | gpt-image-1.5 (고디테일)"),
+          model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default) | gpt-image-1 | gpt-image-1.5 (고디테일) | gpt-image-2 (4K·다국어 텍스트, 투명 배경 미지원)"),
           size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).optional().describe("Size (OpenAI only)"),
           quality: z.enum(["low", "medium", "high", "auto"]).optional().describe("Quality (default: medium)"),
           aspect_ratio: z.enum(["1:1", "3:4", "4:3", "9:16", "16:9"]).optional().describe("Aspect ratio (Gemini only)"),
@@ -721,7 +721,8 @@ Returns:
       description: `동일한 프롬프트로 여러 OpenAI 이미지 모델(및 선택적으로 Gemini)을 병렬 실행해 결과를 비교합니다.
 
 **비교 가능 모델:**
-- gpt-image-1.5 — 최신, 4× 빠름, 20% 저렴 (기본 포함)
+- gpt-image-2   — 2026-04-21 최신, 4K/다국어 텍스트, 투명 배경 미지원 (수동 선택)
+- gpt-image-1.5 — 4× 빠름, 20% 저렴 (기본 포함)
 - gpt-image-1   — 표준 품질/가격 (기본 포함)
 - gpt-image-1-mini — 가장 저렴 (기본 포함)
 - Gemini Imagen — include_gemini: true 시 추가
@@ -781,7 +782,7 @@ Returns:
             label: model,
             fn: () => generateImageOpenAI({
               prompt: params.prompt,
-              model: model as "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+              model,
               size: params.size as "1024x1024" | "1536x1024" | "1024x1536",
               quality: params.quality as "low" | "medium" | "high" | "auto",
               background: params.background as "transparent" | "opaque" | "auto",

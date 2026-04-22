@@ -58,7 +58,24 @@ async function floodFillRemove(
     enqueue(x, y + 1); enqueue(x, y - 1);
   }
 
-  // flood-fill로 방문된 픽셀(배경)만 투명 처리
+  // 크로마키 모드 전용 residue 패스:
+  // 캐릭터 외곽선으로 닫힌 내부 포켓(예: 겨드랑이·다리 사이)은
+  // 엣지 BFS가 도달하지 못해 크로마 색 픽셀이 불투명으로 남는다.
+  // 프롬프트로 캐릭터에 크로마 색 금지를 강제하므로, 연결성 무관하게
+  // 크로마 임계거리 이내 픽셀을 모두 배경으로 마킹해도 안전하다.
+  // (밝기 모드에서는 눈 흰자위 등 내부 흰색을 보존해야 하므로 실행하지 않음.)
+  if (targetColor) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const pos = y * width + x;
+        if (!visited[pos] && isBackground(x, y)) {
+          visited[pos] = 1;
+        }
+      }
+    }
+  }
+
+  // 방문된 픽셀(배경 + 내부 크로마 잔류)만 투명 처리
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (visited[y * width + x]) {

@@ -39,3 +39,6 @@ npm-debug.log*
 
 # TypeScript incremental build
 *.tsbuildinfo
+
+# 로컬 전용 스크립트 (개인 콘텐츠·일회성 디버그 — 커밋/npm publish 모두 제외)
+scripts/.local/

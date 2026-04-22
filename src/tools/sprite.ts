@@ -240,6 +240,8 @@ Returns:
         let mimeType: string;
 
         const effectiveModel = params.model ?? "gpt-image-1-mini";
+        // gpt-image-1 계열만 네이티브 투명 PNG 반환. gpt-image-2는 투명 미지원이라
+        // 여기 포함되지 않으며, 아래에서 chroma-key 또는 flood-fill 경로로 후처리됨.
         const isGptImage1 = effectiveModel.startsWith("gpt-image-1") || !params.model;
 
         if (params.provider === "gemini") {

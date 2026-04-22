@@ -2,16 +2,38 @@ import axios from "axios";
 import * as fs from "fs";
 import * as path from "path";
 import * as FormData from "form-data";
-import { OPENAI_API_URL } from "../constants.js";
+import { OPENAI_API_URL, OPENAI_MODELS_NO_TRANSPARENT_BG } from "../constants.js";
 import { requireEnvVar } from "../utils/errors.js";
 import type { OpenAIImageResponse } from "../types.js";
 
 // ─── 모델 타입 ────────────────────────────────────────────────────────────────
 
-export type OpenAIImageModel = "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+export type OpenAIImageModel =
+  | "gpt-image-2"
+  | "gpt-image-1.5"
+  | "gpt-image-1"
+  | "gpt-image-1-mini";
 
 /** 기본 이미지 생성 모델 (gpt-image-1-mini: 2D 미니게임 에셋에 최적, 단순 스타일, 저비용) */
 export const DEFAULT_OPENAI_IMAGE_MODEL: OpenAIImageModel = "gpt-image-1-mini";
+
+type BackgroundOpt = "transparent" | "opaque" | "auto";
+
+/**
+ * gpt-image-2 처럼 background: "transparent" 를 거부하는 모델에 대해
+ * 요청값을 "auto" 로 자동 강등하여 API 오류를 방지한다.
+ * 최종 투명화가 필요한 경우 호출 측에서 마젠타 크로마키 후처리를 사용할 것.
+ */
+function resolveBackground(
+  model: OpenAIImageModel,
+  requested: BackgroundOpt | undefined,
+): BackgroundOpt {
+  const value = requested ?? "transparent";
+  if (value === "transparent" && (OPENAI_MODELS_NO_TRANSPARENT_BG as readonly string[]).includes(model)) {
+    return "auto";
+  }
+  return value;
+}
 
 // ─── 공통 헤더 ────────────────────────────────────────────────────────────────
 
@@ -42,7 +64,7 @@ export async function generateImageOpenAI(
     prompt: params.prompt,
     size: params.size || "1024x1024",
     n: 1,
-    background: params.background ?? "transparent",
+    background: resolveBackground(model, params.background),
   };
 
   if (params.quality && ["low", "medium", "high", "auto"].includes(params.quality)) {
@@ -54,7 +76,8 @@ export async function generateImageOpenAI(
     body,
     {
       headers: getHeaders(),
-      timeout: 120000,
+      // gpt-image-2 high-quality는 단건 생성에 2분 이상 걸리므로 넉넉하게
+      timeout: 300000,
     }
   );
 
@@ -130,7 +153,8 @@ export async function editImageOpenAI(
         Authorization: `Bearer ${apiKey}`,
         ...form.getHeaders(),
       },
-      timeout: 120000,
+      // gpt-image-2 edit도 60초 이상 걸리는 경우가 관측됨 (출시 당일 기준)
+      timeout: 300000,
     }
   );
 
@@ -147,7 +171,7 @@ export async function editImageOpenAI(
 //   tools  = [{ type: "image_generation", ... }]
 //   action = "auto" | "generate" | "edit"
 //
-// gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini 는 내부 이미지 모델.
+// gpt-image-2 / gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini 는 내부 이미지 모델.
 // Responses API의 model 파라미터에는 직접 지정 불가.
 
 export interface OpenAIResponsesImageParams {
@@ -195,9 +219,11 @@ export async function generateImageWithResponses(
   content.push({ type: "input_text", text: params.prompt });
 
   // ── image_generation tool 설정 ───────────────────────────────────────────
+  // 내부 imageModel 이 gpt-image-2 인 경우 transparent 배경은 미지원 → auto 로 강등
+  const resolvedImageModel: OpenAIImageModel = params.imageModel ?? DEFAULT_OPENAI_IMAGE_MODEL;
   const imageTool: Record<string, unknown> = {
     type: "image_generation",
-    background: params.background ?? "transparent",
+    background: resolveBackground(resolvedImageModel, params.background),
     quality: params.quality ?? "high",
     size: params.size ?? "1024x1024",
   };
