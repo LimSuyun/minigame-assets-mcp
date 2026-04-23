@@ -1,7 +1,7 @@
 {
   "name": "minigame-assets-mcp",
-  "version": "1.1.2",
-  "description": "MCP server for generating game assets using AI (images, sprites, weapons, backgrounds, logos, thumbnails, music, video)",
+  "version": "2.0.0",
+  "description": "MCP server for generating game assets using AI (images, sprites, weapons, backgrounds, logos, thumbnails, music, video). gpt-image-2 native support, Phaser layer mapping, quality review.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -11,6 +11,7 @@
     "dist/",
     "templates/",
     "README.md",
+    "CHANGELOG.md",
     ".env.example",
     ".mcp.json.example"
   ],
@@ -19,6 +20,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -49,7 +53,9 @@
     "@types/express": "^5.0.0",
     "@types/form-data": "^2.2.1",
     "@types/node": "^22.10.0",
+    "@vitest/ui": "^4.1.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.5"
   }
 }
