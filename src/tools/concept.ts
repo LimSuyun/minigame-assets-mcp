@@ -131,8 +131,8 @@ ${bgRows.join("\n")}
 ## 생성 가이드
 
 ### 캐릭터 생성 순서
-1. \`asset_generate_character_base\` — gpt-image-1, 투명 배경으로 정면 서 있는 캐릭터 생성
-2. \`asset_generate_sprite_sheet\` — Gemini로 각 액션(${params.characters[0]?.actions?.join(", ") || "idle, walk, attack, die"})별 프레임 생성
+1. \`asset_generate_character_base\` — gpt-image-2, 마젠타 크로마키 → 투명 배경으로 정면 서 있는 캐릭터 생성
+2. \`asset_generate_sprite_sheet\` — gpt-image-2로 각 액션(${params.characters[0]?.actions?.join(", ") || "idle, walk, attack, die"})별 프레임 생성 (chroma_key_bg: "magenta" 권장)
 
 ### 무기 생성 순서
 1. \`asset_generate_weapons\` — gpt-image-1, 투명 배경으로 무기 아이콘 생성
@@ -471,8 +471,8 @@ Returns:
         },
         next_steps: [
           "1. asset_generate_execution_plan — 게임 엔진 파악 및 실행 계획 생성",
-          "2. asset_generate_character_base — 각 캐릭터 정면 베이스 생성 (gpt-image-1, 투명 배경)",
-          "3. asset_generate_sprite_sheet — 각 캐릭터 액션 스프라이트 생성 (Gemini)",
+          "2. asset_generate_character_base — 각 캐릭터 정면 베이스 생성 (gpt-image-2, 마젠타 크로마키 → 투명)",
+          "3. asset_generate_sprite_sheet — 각 캐릭터 액션 스프라이트 생성 (gpt-image-2, chroma_key_bg: magenta 권장)",
           "4. asset_generate_weapons — 무기 아이콘 생성 (gpt-image-1, 투명 배경)",
           "5. asset_generate_image_gemini — 배경 이미지 생성",
         ],

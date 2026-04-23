@@ -90,6 +90,99 @@ async function floodFillRemove(
   }).png().toBuffer();
 }
 
+// ─── 크로마 잔류 스캔 (품질 검증용) ──────────────────────────────────────────
+
+export interface ChromaResidueReport {
+  /** 불투명 픽셀 총 수 */
+  totalOpaque: number;
+  /** 크로마 거리 ≤ threshold인 픽셀 수 (잔류) */
+  residuePixels: number;
+  /** residuePixels / totalOpaque × 100 (%) */
+  residuePercent: number;
+  /** 인접 연결된 가장 큰 잔류 클러스터 크기 (픽셀) */
+  largestCluster: number;
+}
+
+/**
+ * PNG 내부의 크로마 색상 잔류 픽셀을 정량 측정한다.
+ * 마젠타 크로마키 제거 후 내부 포켓(겨드랑이 등)에 남은 불투명 마젠타 탐지에 사용.
+ *
+ * @param filePath PNG 파일 경로
+ * @param targetColor 체크할 크로마 색상 [R,G,B], 기본 마젠타 #FF00FF
+ * @param threshold 유클리드 거리 임계값, 기본 80
+ */
+export async function scanChromaResidue(
+  filePath: string,
+  targetColor: [number, number, number] = [255, 0, 255],
+  threshold: number = 80,
+): Promise<ChromaResidueReport> {
+  const { data, info } = await sharp(filePath)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height } = info;
+  const visited = new Uint8Array(width * height);
+  let totalOpaque = 0;
+  let residuePixels = 0;
+
+  const isResidue = (idx: number): boolean => {
+    if (data[idx + 3] < 250) return false;
+    const dr = data[idx] - targetColor[0];
+    const dg = data[idx + 1] - targetColor[1];
+    const db = data[idx + 2] - targetColor[2];
+    return Math.sqrt(dr * dr + dg * dg + db * db) <= threshold;
+  };
+
+  // 1차 패스: 카운트
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      if (data[idx + 3] < 250) continue;
+      totalOpaque++;
+      if (isResidue(idx)) residuePixels++;
+    }
+  }
+
+  // 2차 패스: 가장 큰 연결 클러스터 크기 (BFS)
+  let largestCluster = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const pos = y * width + x;
+      if (visited[pos]) continue;
+      const idx = pos * 4;
+      if (!isResidue(idx)) continue;
+      let size = 0;
+      const queue = [pos];
+      visited[pos] = 1;
+      while (queue.length > 0) {
+        const p = queue.shift()!;
+        size++;
+        const px = p % width;
+        const py = (p - px) / width;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = px + dx;
+          const ny = py + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const np = ny * width + nx;
+          if (visited[np]) continue;
+          if (!isResidue(np * 4)) continue;
+          visited[np] = 1;
+          queue.push(np);
+        }
+      }
+      if (size > largestCluster) largestCluster = size;
+    }
+  }
+
+  return {
+    totalOpaque,
+    residuePixels,
+    residuePercent: totalOpaque > 0 ? (residuePixels / totalOpaque) * 100 : 0,
+    largestCluster,
+  };
+}
+
 // ─── 콘텐츠 기반 자동 크롭 ───────────────────────────────────────────────────
 // 투명하지 않은 픽셀의 bounding box를 찾아서 여백 제거.
 

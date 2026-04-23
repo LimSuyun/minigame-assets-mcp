@@ -25,6 +25,8 @@ import { handleApiError } from "../utils/errors.js";
 import { processFrameBase64, removeBackground, compositeOntoSolidBg, processFrameBase64AI, processFrameBase64Chroma } from "../utils/image-process.js";
 import { checkSpriteFrameQuality } from "../services/claude-vision.js";
 import { editImageOpenAI } from "../services/openai.js";
+import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 import type { GameConcept, GeneratedAsset } from "../types.js";
 
 // ─── 기본 액션 세트 ──────────────────────────────────────────────────────────
@@ -127,18 +129,42 @@ function readImageAsBase64(filePath: string): { base64: string; mimeType: string
   return { base64, mimeType };
 }
 
+export type CharacterRole = "player" | "enemy" | "monster" | "npc" | "generic";
+
+const ROLE_GUIDANCE: Record<CharacterRole, string> = {
+  player:
+    "Heroic protagonist — distinctive appealing silhouette players want to embody. " +
+    "Balanced proportions, confident neutral stance, hero-grade detailing on outfit and accessories.",
+  enemy:
+    "Antagonistic humanoid opponent — threatening silhouette with contrasting color palette to typical hero colors. " +
+    "Hostile but not grotesque, clear visual threat readability, battle-worn attire.",
+  monster:
+    "Creature or beast — non-humanoid forms allowed (quadruped, winged, amorphous, etc.). " +
+    "Organic menacing presence, natural textures (fur, scales, chitin), expressive hostile features. " +
+    "Full body visible including all limbs/tails/wings.",
+  npc:
+    "Supporting background character — approachable neutral design, distinctive enough to remember " +
+    "but visually quieter than hero characters. Profession or role visible through attire. " +
+    "Friendly or merchant-like demeanor.",
+  generic: "",
+};
+
 function buildBaseCharacterPrompt(
   description: string,
   conceptHint: string,
-  chromaKeyColor?: [number, number, number]
+  chromaKeyColor?: [number, number, number],
+  role: CharacterRole = "generic"
 ): string {
   const bgInstruction = chromaKeyColor
     ? `Solid flat ${chromaKeyColorToName(chromaKeyColor)} background — uniform single color, no gradients, no shadows on the background itself.`
     : `transparent background.`;
 
+  const roleGuidance = ROLE_GUIDANCE[role];
+
   return (
     `A single 2D game character sprite on a ${bgInstruction} ` +
     `${CHIBI_STYLE_DEFAULT} ` +
+    (roleGuidance ? `CHARACTER ROLE: ${roleGuidance} ` : "") +
     `Character: ${description}. ` +
     `Neutral front-facing stance, body relaxed, arms at sides. ` +
     `ENTIRE full body visible — top of head to very tips of feet, all accessories included. ` +
@@ -176,21 +202,32 @@ export function registerSpriteTools(server: McpServer): void {
     "asset_generate_character_base",
     {
       title: "Generate Base Character Sprite",
-      description: `Generate the original base character sprite for a game.
+      description: `Generate the original base character sprite for a game (default: OpenAI gpt-image-2 + 마젠타 크로마키).
+
+**Target Layer**: GameScene **Layer 2 (유닛)** — 플레이어/적/몬스터/NPC 공통. 자세한 레이어 매핑은 \`templates/docs/layer-system.md\` 참조.
 
 **CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
 
 This creates the "master" character image that all action sprites will be derived from.
 After generating, use asset_generate_action_sprite or asset_generate_sprite_sheet
-to create action variants using Gemini image editing (preserving the original design).
+to create action variants using gpt-image-2 image editing (preserving the original design).
+
+gpt-image-2는 투명 배경을 지원하지 않으므로 내부적으로 마젠타(#FF00FF) 배경 위에 생성 후
+크로마키 제거(residue 패스 포함) → 투명 PNG로 저장됩니다. 네이티브 투명이 필요하면
+\`model\`에 \`gpt-image-1\` 계열을 명시하세요 (예: "gpt-image-1", "gpt-image-1-mini").
+
+**Performance note**: gpt-image-2 high-quality는 ~90~120초 소요 (gpt-image-1 ~40초 대비 2~3× 느림).
+베이스는 캐릭터당 1회만 생성하므로 실용적이며, 디테일 품질 향상이 큰 편.
 
 Args:
   - character_name (string): Identifier for this character (used in file names)
   - description (string): Detailed character description (appearance, clothing, style, etc.)
-  - provider (string): "openai" (DALL-E 3, default) or "gemini" (Imagen 4)
+  - provider (string): "openai" (default, gpt-image-2) or "gemini" (Imagen 4)
+  - model (string, optional): Model override. Defaults to "gpt-image-2". Alternatives: "gpt-image-1", "gpt-image-1-mini" (네이티브 투명), "gpt-image-1.5"
   - size (string, optional): For OpenAI — "1024x1024" (default), "1024x1792"
   - aspect_ratio (string, optional): For Gemini — "1:1" (default), "3:4"
+  - chroma_key_bg (string, optional): 크로마키 색상 override. gpt-image-2에서는 미지정 시 "magenta" 자동 적용.
   - bg_threshold (number, optional): White background removal threshold 0-255 (default: 240)
   - use_concept (boolean, optional): Inject game concept into prompt (default: true)
   - concept_file (string, optional): Path to game concept JSON
@@ -202,13 +239,17 @@ Returns:
       inputSchema: z.object({
         character_name: z.string().min(1).max(100).describe("Character identifier (e.g., hero, enemy_slime)"),
         description: z.string().min(10).max(3000).describe("Detailed character appearance description"),
+        role: z.enum(["player", "enemy", "monster", "npc", "generic"]).default("generic")
+          .describe("캐릭터 역할. player(주인공)·enemy(인간형 적)·monster(생물/괴수)·npc(주변 캐릭터)에 맞는 실루엣·컬러팔레트·디테일 가이던스 자동 주입. generic은 중립."),
         provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
-        model: z.string().optional().describe("Model override: gpt-image-1 (OpenAI, default) | imagen-4.0-generate-001 (Gemini)"),
+        model: z.string().optional().describe("Model override. Default: gpt-image-2 (최고 품질, 마젠타 크로마키 자동 적용). 대안: gpt-image-1, gpt-image-1-mini (네이티브 투명, 빠름) | gpt-image-1.5 | imagen-4.0-generate-001 (Gemini)"),
         size: z.enum(["1024x1024", "1024x1792", "1536x1024", "1024x1536"]).default("1024x1024").describe("Image size (OpenAI only)"),
         aspect_ratio: z.enum(["1:1", "3:4"]).default("1:1").describe("Aspect ratio (Gemini only)"),
-        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Ignored when using gpt-image-1 or chroma_key_bg."),
+        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Ignored when using gpt-image-1 native transparent or any chroma_key_bg."),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
-          .describe("Chroma key background color. AI draws a solid flat background in this color; later removed precisely with asset_remove_background. Recommended: 'magenta'. Leave empty to use white (default) or gpt-image-1 transparent output."),
+          .describe("Chroma key background color override. gpt-image-2 기본 경로는 'magenta' 자동 적용(residue 패스로 내부 포켓까지 제거). gpt-image-1 계열은 미지정 시 네이티브 투명."),
+        refine_prompt: z.boolean().default(false)
+          .describe("GPT-5(기본: gpt-5.4-nano)로 description을 상세 영문 프롬프트로 확장 후 이미지 생성. 짧은 한국어 입력이나 디테일이 부족한 경우 권장. 추가 지연 ~3초 + 소량 토큰 비용. 기본: false"),
         use_concept: z.boolean().default(true).describe("Inject game concept into prompt"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -221,28 +262,53 @@ Returns:
       },
     },
     async (params) => {
+      const latency = startLatencyTracker();
       try {
         const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
         const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
         const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
 
-        const chromaKeyColor = params.chroma_key_bg
-          ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
+        // 기본 모델: gpt-image-2 (투명 미지원 → 마젠타 크로마키 자동 적용).
+        // 사용자가 gpt-image-1 계열을 명시하면 네이티브 투명 경로 유지.
+        const effectiveModel = params.model ?? "gpt-image-2";
+        const supportsNativeTransparent = effectiveModel.startsWith("gpt-image-1");
+
+        // gpt-image-2는 투명 미지원이라 chroma_key_bg 미지정 시 magenta 자동 적용.
+        // 그러면 프롬프트에 magenta 배경 지시어가 들어가고 removeBackground(chromaKey)로 제거됨.
+        const effectiveChromaBgKey: keyof typeof CHROMA_KEY_COLORS | undefined =
+          params.chroma_key_bg ?? (supportsNativeTransparent ? undefined : "magenta");
+        const chromaKeyColor = effectiveChromaBgKey
+          ? CHROMA_KEY_COLORS[effectiveChromaBgKey] as [number, number, number]
           : undefined;
 
+        // GPT-5 프롬프트 리파인 (opt-in)
+        let descriptionForPrompt = params.description;
+        let refinedByGPT5 = false;
+        if (params.refine_prompt) {
+          try {
+            descriptionForPrompt = await refineImagePrompt({
+              userDescription: params.description,
+              targetModel: (effectiveModel.startsWith("gpt-image-") ? effectiveModel : "gemini-imagen") as
+                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini" | "gemini-imagen",
+              assetType: "character",
+              conceptHint,
+            });
+            refinedByGPT5 = true;
+          } catch (refineErr) {
+            // 리파인 실패해도 원본으로 계속 진행
+            console.warn(`[refine_prompt] character_base refinement failed, using original: ${refineErr instanceof Error ? refineErr.message : refineErr}`);
+          }
+        }
+
         const prompt = buildBaseCharacterPrompt(
-          `${params.description}. This is the BASE reference character — all details must be precise and consistent.`,
+          `${descriptionForPrompt}. This is the BASE reference character — all details must be precise and consistent.`,
           conceptHint,
-          chromaKeyColor
+          chromaKeyColor,
+          params.role
         );
 
         let base64: string;
         let mimeType: string;
-
-        const effectiveModel = params.model ?? "gpt-image-1-mini";
-        // gpt-image-1 계열만 네이티브 투명 PNG 반환. gpt-image-2는 투명 미지원이라
-        // 여기 포함되지 않으며, 아래에서 chroma-key 또는 flood-fill 경로로 후처리됨.
-        const isGptImage1 = effectiveModel.startsWith("gpt-image-1") || !params.model;
 
         if (params.provider === "gemini") {
           const r = await generateImageGemini({
@@ -255,18 +321,26 @@ Returns:
         } else {
           const r = await generateImageOpenAI({
             prompt,
+            model: effectiveModel as
+              | "gpt-image-2"
+              | "gpt-image-1.5"
+              | "gpt-image-1"
+              | "gpt-image-1-mini",
             size: params.size,
             quality: "high",
+            // gpt-image-2는 resolveBackground shim이 "auto"로 자동 강등함.
+            // gpt-image-1 계열은 그대로 "transparent" 전송됨.
             background: "transparent",
           });
           base64 = r.base64;
           mimeType = r.mimeType;
         }
 
-        // gpt-image-1은 네이티브 투명 PNG 반환 → flood-fill 불필요
+        // gpt-image-1 계열만 네이티브 투명 PNG 반환 → 후처리 생략.
+        // gpt-image-2는 chromaKeyColor(기본 magenta) 경로로 크로마키 제거 + residue 패스.
         let processedBuffer: Buffer;
         let processedBase64: string;
-        if (isGptImage1) {
+        if (supportsNativeTransparent) {
           processedBuffer = Buffer.from(base64, "base64");
           processedBase64 = base64;
         } else if (chromaKeyColor) {
@@ -312,6 +386,11 @@ Returns:
           metadata: {
             character_name: params.character_name,
             is_base_character: true,
+            role: params.role,
+            role_guidance_injected: params.role !== "generic",
+            refined_by_gpt5: refinedByGPT5,
+            ...(refinedByGPT5 ? { refined_prompt: descriptionForPrompt } : {}),
+            ...buildCostTelemetry(effectiveModel, "high", params.size, latency.elapsed()),
           },
         };
 
@@ -327,6 +406,8 @@ Returns:
                 file_path: filePath,
                 asset_id: asset.id,
                 provider: params.provider,
+                model: effectiveModel,
+                refined_by_gpt5: refinedByGPT5,
                 note: "Transparent PNG saved. Pass file_path to asset_generate_action_sprite or asset_generate_sprite_sheet.",
               }, null, 2),
             },
@@ -335,6 +416,183 @@ Returns:
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: handleApiError(error, "Character Base") }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── 1-b. 장비 결합 베이스 (Base + Equipment → Equipped Base) ────────────
+  server.registerTool(
+    "asset_generate_character_equipped",
+    {
+      title: "Generate Character with Equipment (Equipped Base)",
+      description: `베이스 캐릭터에 장비(무기, 방어구, 악세서리)를 장착한 **새 베이스 이미지**를 생성합니다.
+결과물은 투명 배경 PNG로 저장되어 \`asset_generate_sprite_sheet\`에 그대로 재사용 가능합니다.
+
+**Target Layer**: GameScene **Layer 2 (유닛)** — base character와 동일 레이어. 자세한 레이어 매핑은 \`templates/docs/layer-system.md\` 참조.
+
+**생성 방식** (gpt-image-2 edit + 마젠타 크로마키):
+1. \`base_character_path\` (원본 베이스)와 \`equipment_image_paths\` (실제 무기/방어구 PNG들, 최대 4개)를
+   gpt-image-2 edit API에 다중 레퍼런스로 전달
+2. AI가 캐릭터 디자인 보존 + 장비 자연스럽게 착용한 새 씬 생성 (마젠타 배경으로 유도)
+3. removeBackground(chromaKey=magenta) + residue 패스로 겨드랑이·팔 포켓까지 깔끔 제거
+4. 출력: \`sprites/{character_name}/{character_name}_{variant_name}_base.png\`
+
+**사용 예**:
+1. 먼저 \`asset_generate_character_base\`로 맨몸 베이스 생성 → hero_base.png
+2. \`asset_generate_weapons\`로 무기 아이콘 생성 → sword.png
+3. \`asset_generate_character_equipped\` 호출:
+   - base_character_path: hero_base.png
+   - equipment_image_paths: [sword.png]
+   - equipment_description: "wielding the sword in right hand"
+   → hero_equipped_base.png 생성
+4. \`asset_generate_sprite_sheet\`에 \`base_character_path: hero_equipped_base.png\`로 전달하여 장비 착용 상태 스프라이트 시트 생성
+
+Args:
+  - base_character_path (string): 원본 베이스 캐릭터 이미지 경로 (투명 PNG)
+  - character_name (string): 캐릭터 식별자 (파일 네이밍용)
+  - equipment_description (string): 장비 착용 방법 설명 (예: "holding a wooden bow in left hand, leather helmet on head")
+  - equipment_image_paths (array, optional): 장비 PNG 파일 경로들 (최대 4개). 제공 시 캐릭터와 함께 gpt-image-2 edit 레퍼런스로 전달
+  - variant_name (string, optional): 파일명 접미사 (기본: "equipped")
+  - model (string, optional): OpenAI 모델. 기본: gpt-image-2
+  - refine_prompt (boolean, optional): GPT-5로 equipment_description 확장 (기본: false)
+  - output_dir (string, optional): 출력 디렉토리
+
+Returns:
+  새 베이스 이미지 경로 + 스프라이트 시트 호출 예시.`,
+      inputSchema: z.object({
+        base_character_path: z.string().min(1).describe("원본 베이스 캐릭터 PNG 경로"),
+        character_name: z.string().min(1).max(100).describe("캐릭터 식별자"),
+        equipment_description: z.string().min(5).max(1500)
+          .describe("장비 착용 설명 (영문 권장). 예: 'wielding long sword in right hand, round steel shield in left hand, chainmail armor'"),
+        equipment_image_paths: z.array(z.string()).max(4).optional()
+          .describe("장비 레퍼런스 PNG 경로들 (무기/방어구 etc., 최대 4개). 제공 시 AI가 해당 장비 시각을 참고해 일관성 유지"),
+        variant_name: z.string().min(1).max(50).default("equipped")
+          .describe("출력 파일명 접미사 (예: 'equipped', 'sword_shield', 'heavy_armor')"),
+        model: z.string().optional()
+          .describe("OpenAI 모델 override. 기본: gpt-image-2"),
+        refine_prompt: z.boolean().default(false)
+          .describe("GPT-5로 equipment_description을 확장 후 적용. 짧은 한국어 입력에 유용."),
+        output_dir: z.string().optional().describe("출력 디렉토리"),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      const latency = startLatencyTracker();
+      try {
+        if (!fs.existsSync(params.base_character_path)) {
+          throw new Error(`base_character_path 파일 없음: ${params.base_character_path}`);
+        }
+        for (const p of params.equipment_image_paths ?? []) {
+          if (!fs.existsSync(p)) throw new Error(`equipment_image_paths 파일 없음: ${p}`);
+        }
+
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+        const safeCharName = params.character_name.replace(/[^a-zA-Z0-9_-]/g, "_");
+        const safeVariant = params.variant_name.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+        // GPT-5 리파인 (opt-in)
+        let equipmentDesc = params.equipment_description;
+        let refinedByGPT5 = false;
+        if (params.refine_prompt) {
+          try {
+            equipmentDesc = await refineImagePrompt({
+              userDescription: params.equipment_description,
+              targetModel: "gpt-image-2",
+              assetType: "character",
+              conceptHint: "Equipment combination — preserve base character exactly, only add/show equipped gear.",
+            });
+            refinedByGPT5 = true;
+          } catch (e) {
+            console.warn(`[refine_prompt] character_equipped refinement failed: ${e instanceof Error ? e.message : e}`);
+          }
+        }
+
+        // 편집 프롬프트 구성
+        // 마젠타 배경 + 캐릭터 보존 + 장비 자연스럽게 착용
+        const editPrompt =
+          `Redraw this exact character with the following equipment naturally equipped: ${equipmentDesc}. ` +
+          `Preserve every detail from the base character reference — ` +
+          `same face, same body shape and proportions, same skin/hair/eyes color, same outfit/armor ` +
+          `(equipment is ADDED on top of existing design, NOT replacing the character's own appearance). ` +
+          `Equipment should be visually consistent with the provided equipment reference images (if any). ` +
+          `The character's stance is neutral front-facing, body relaxed, arms positioned naturally to hold/wear the equipment. ` +
+          `ENTIRE full body visible — top of head to tips of feet, including all equipment extending outward. ` +
+          `Character + equipment together must NOT exceed 70% of image height — leave ≥15% margin on all sides. ` +
+          `Solid flat pure magenta (#FF00FF) background — uniform single color, no gradients, no shadows on the background. ` +
+          `CRITICAL: neither character nor equipment may contain any magenta/pink/hot-pink pixels — ` +
+          `use only natural character/gear colors (browns, greys, metal tones, leather, skin tones). ` +
+          `${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
+
+        const refPaths: string[] = [params.base_character_path, ...(params.equipment_image_paths ?? [])];
+        const effectiveModel = (params.model ?? "gpt-image-2") as
+          | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+
+        // edit API 호출
+        const editResult = await editImageOpenAI({
+          imagePaths: refPaths,
+          prompt: editPrompt,
+          model: effectiveModel,
+          size: "1024x1024",
+        });
+
+        // 마젠타 크로마키 제거 + residue 패스 (utils/image-process.ts 의 floodFillRemove)
+        const spriteDir = path.resolve(outputDir, `sprites/${safeCharName}`);
+        ensureDir(spriteDir);
+        const rawPath = path.join(spriteDir, `_tmp_equipped_raw_${Date.now()}.png`);
+        const finalPath = path.join(spriteDir, `${safeCharName}_${safeVariant}_base.png`);
+
+        fs.writeFileSync(rawPath, Buffer.from(editResult.base64, "base64"));
+        try {
+          await removeBackground(rawPath, finalPath, {
+            chromaKeyColor: [255, 0, 255],
+            cropToContent: true,
+          });
+        } finally {
+          try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch { /* ignore */ }
+        }
+
+        const asset: GeneratedAsset = {
+          id: generateAssetId(), type: "image", asset_type: "character",
+          provider: "openai", prompt: editPrompt, file_path: finalPath,
+          file_name: path.basename(finalPath), mime_type: "image/png",
+          created_at: new Date().toISOString(),
+          metadata: {
+            character_name: params.character_name,
+            variant_name: params.variant_name,
+            is_base_character: true,
+            is_equipped_variant: true,
+            base_character_path: path.resolve(params.base_character_path),
+            equipment_image_paths: (params.equipment_image_paths ?? []).map((p) => path.resolve(p)),
+            equipment_description: params.equipment_description,
+            refined_by_gpt5: refinedByGPT5,
+            ...(refinedByGPT5 ? { refined_equipment_description: equipmentDesc } : {}),
+            ...buildEditCostTelemetry(effectiveModel, "1024x1024", latency.elapsed(), refPaths.length),
+          },
+        };
+        saveAssetToRegistry(asset, outputDir);
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              success: true,
+              character_name: params.character_name,
+              variant_name: params.variant_name,
+              file_path: finalPath,
+              asset_id: asset.id,
+              model: effectiveModel,
+              reference_images_used: refPaths.length,
+              refined_by_gpt5: refinedByGPT5,
+              note: "투명 PNG 저장됨. 이 파일을 asset_generate_sprite_sheet의 base_character_path 또는 pose_image로 전달하면 장비 착용 상태 스프라이트 시트가 생성됩니다.",
+              next_step_example: `asset_generate_sprite_sheet(base_character_path="${finalPath}", character_name="${params.character_name}_${params.variant_name}")`,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Character Equipped Base") }],
           isError: true,
         };
       }
@@ -527,12 +785,18 @@ Returns:
   server.registerTool(
     "asset_generate_sprite_sheet",
     {
-      title: "Generate Full Sprite Sheet (Gemini Edit)",
+      title: "Generate Full Sprite Sheet (gpt-image-2 Edit)",
       description: `Generate a complete sprite sheet by creating multiple action frame sprites
-from a base character image using Gemini image editing, then export in game engine formats.
+from a base character image using OpenAI gpt-image-2 image editing, then export in game engine formats.
 
-All action sprites are generated via Gemini image edit to preserve the original
-character's colors, proportions, and art style.
+**Target Layer**: GameScene **Layer 2 (유닛 애니메이션)** — 생성된 프레임들은 런타임에 depth 2로 렌더링.
+
+All action sprites are generated via gpt-image-2 edit to preserve the original
+character's colors, proportions, and art style. gpt-image-2는 투명 배경을 지원하지 않으므로
+내부적으로 단색 배경(마젠타 권장) 위에 편집 후 크로마키로 제거합니다.
+
+**Performance note**: gpt-image-2는 편집 요청당 ~30-60초 소요 (Gemini 대비 ~2.7× 느림).
+7액션 × 1프레임 기본 세트 기준 ~5분, 다프레임 애니메이션은 더 오래 걸립니다.
 
 **Pose-First Pattern (권장):**
   1. asset_generate_character_base → 베이스 캐릭터 생성
@@ -583,16 +847,18 @@ Returns:
         custom_action_prompts: z.record(z.string()).optional()
           .describe("Override edit prompts per action: { action_name: edit_prompt } (merges with prompt_file)"),
         edit_model: z.string().optional()
-          .describe("Gemini model for image editing (default: gemini-2.5-flash-image). Can be set in prompt_file settings.edit_model."),
+          .describe("OpenAI model for image editing (default: gpt-image-2). gpt-image-1 계열도 사용 가능하나 gpt-image-2가 품질 최고."),
         export_formats: z.array(z.enum(["individual", "phaser", "cocos", "unity"]))
           .default(["individual"])
           .describe("Engine export formats: phaser / cocos / unity"),
         sheet_padding: z.number().int().min(0).max(64).default(0)
           .describe("Pixel padding between frames in the composed sheet"),
+        sheet_cols: z.number().int().min(1).optional()
+          .describe("스프라이트 시트 열 수. 미지정 시 1행 가로 스트립(cols = 전체 프레임 수). 2행 그리드 원하면 Math.ceil(N/2) 지정."),
         frame_padding: z.number().int().min(0).max(300).default(20)
           .describe("Padding pixels added around each individual sprite frame (prevents edge cropping). Default: 20"),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
-          .describe("Intermediate background color for Gemini edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
+          .describe("Intermediate background color for edit. STRONGLY RECOMMENDED 'magenta' with gpt-image-2 — 외곽선으로 닫힌 포켓(겨드랑이 등) 잔류를 residue 패스로 제거. 흰색 flood-fill은 내부 포켓 잔류 위험."),
         bg_threshold: z.number().int().min(0).max(255).default(240)
           .describe("White background removal threshold (0-255). Used only when chroma_key_bg is not set."),
         quality_check: z.boolean().default(false)
@@ -683,7 +949,7 @@ Returns:
         params.edit_model ??
         spriteConfig.settings?.edit_model ??
         fileConfig.settings?.edit_model ??
-        "gemini-2.5-flash-image";
+        "gpt-image-2";
 
       // 원본 이미지 읽기 (메타데이터용)
       let origBase64: string;
@@ -733,9 +999,17 @@ Returns:
         frames: [],
         animations: {},
         created_at: new Date().toISOString(),
-        provider: "gemini-edit",
+        provider: "openai-gpt-image-2",
         ...(poseFirstMode ? { pose_image_path: path.resolve(editSourcePath) } : {}),
       } as SpriteSheetManifest & { pose_image_path?: string };
+
+      // gpt-image-2 edits 엔드포인트는 imagePath 입력을 요구하므로,
+      // composited base64를 임시 PNG 파일로 한 번 쓰고 전체 루프 끝에 정리.
+      const tmpEditPath = path.join(
+        process.env["TMPDIR"] || "/tmp",
+        `sprite_edit_${safeCharName}_${Date.now()}_${Math.random().toString(36).slice(2)}.png`,
+      );
+      fs.writeFileSync(tmpEditPath, Buffer.from(compositedBase64, "base64"));
 
       const results: Array<{
         action: string;
@@ -769,14 +1043,21 @@ Returns:
             buildActionEditPrompt(poseDesc + frameNote);
 
           try {
-            const result = await editImageGemini({
-              imageBase64: compositedBase64,
-              imageMimeType: "image/png",
-              editPrompt: basePrompt,
-              model: effectiveEditModel,
+            const result = await editImageOpenAI({
+              imagePath: tmpEditPath,
+              prompt: basePrompt,
+              model: effectiveEditModel as
+                | "gpt-image-2"
+                | "gpt-image-1.5"
+                | "gpt-image-1"
+                | "gpt-image-1-mini",
+              size: "1024x1024",
             });
 
             // 배경 제거: 크로마키 모드 또는 순백 flood-fill
+            // gpt-image-2는 투명 미지원이라 크로마키 매개 필수.
+            // chroma_key_bg: "magenta" 사용 시 image-process.ts의 residue 패스가
+            // 외곽선으로 닫힌 내부 포켓(겨드랑이 등) 잔류까지 자동 제거.
             let processedBuffer: Buffer;
             if (sheetChromaKeyColor) {
               processedBuffer = await processFrameBase64Chroma(result.base64, sheetChromaKeyColor);
@@ -835,7 +1116,7 @@ Returns:
               id: generateAssetId(),
               type: "image",
               asset_type: "sprite",
-              provider: "gemini-edit",
+              provider: "openai-gpt-image-2",
               prompt: basePrompt,
               file_path: filePath,
               file_name: fileName,
@@ -846,6 +1127,7 @@ Returns:
                 action,
                 frame_index: frameIdx,
                 base_character_path: params.base_character_path,
+                edit_model: effectiveEditModel,
               },
             };
             saveAssetToRegistry(asset, outputDir);
@@ -860,7 +1142,7 @@ Returns:
                   passed: frameQualityIssues.length === 0,
                   issues: frameQualityIssues,
                   fallback_used: frameFallbackUsed,
-                  provider: frameFallbackUsed ? "openai-fallback" : "gemini-edit",
+                  provider: frameFallbackUsed ? "openai-fallback" : "openai-gpt-image-2",
                 },
               } : {}),
             });
@@ -869,10 +1151,17 @@ Returns:
               action,
               frame_index: frameIdx,
               success: false,
-              error: handleApiError(error, "Gemini Edit"),
+              error: handleApiError(error, "OpenAI Edit (gpt-image-2)"),
             });
           }
         }
+      }
+
+      // 임시 편집 입력 파일 정리
+      try {
+        if (fs.existsSync(tmpEditPath)) fs.unlinkSync(tmpEditPath);
+      } catch (_cleanupErr) {
+        // 정리 실패는 결과에 영향 없음
       }
 
       // 매니페스트 저장
@@ -900,10 +1189,13 @@ Returns:
         if (frameInfos.length > 0) {
           try {
             const sheetPngPath = path.join(spriteDir, `${safeCharName}_sheet.png`);
+            // 기본: 1행 가로 스트립 (cols = frames.length). sheet_cols로 override 가능.
+            const effectiveCols = params.sheet_cols ?? frameInfos.length;
             const sheet = await composeSpritSheet(
               frameInfos,
               sheetPngPath,
-              params.sheet_padding
+              params.sheet_padding,
+              effectiveCols,
             );
             exportedFiles["sheet_png"] = sheetPngPath;
 

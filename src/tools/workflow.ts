@@ -136,9 +136,9 @@ function buildExecutionPlanMd(
     const actionList = c.actions.join(", ");
     return (
       `#### ${i + 1}. ${c.name} (${c.id}) — 타입: ${c.type}\n` +
-      `- [ ] **베이스 생성**: \`asset_generate_character_base\` — provider: openai, model: gpt-image-1, transparent background\n` +
+      `- [ ] **베이스 생성**: \`asset_generate_character_base\` — provider: openai, model: gpt-image-2 (기본), magenta 크로마키 자동 적용 → 투명 PNG\n` +
       `  - character_name: \`${c.id}\`\n` +
-      `- [ ] **스프라이트 생성**: \`asset_generate_sprite_sheet\` — provider: gemini (각 액션별 편집)\n` +
+      `- [ ] **스프라이트 생성**: \`asset_generate_sprite_sheet\` — provider: openai, model: gpt-image-2, chroma_key_bg: magenta (각 액션별 편집)\n` +
       `  - actions: [${actionList}]\n` +
       `  - export_formats: [${formatList}]`
     );
@@ -228,8 +228,8 @@ ${bgSteps}
 
 | 도구 | 용도 |
 |------|------|
-| \`asset_generate_character_base\` | 캐릭터 정면 베이스 생성 (gpt-image-1, 투명) |
-| \`asset_generate_sprite_sheet\` | 캐릭터 액션 스프라이트 시트 (Gemini) |
+| \`asset_generate_character_base\` | 캐릭터 정면 베이스 생성 (gpt-image-2, 마젠타 크로마키 → 투명) |
+| \`asset_generate_sprite_sheet\` | 캐릭터 액션 스프라이트 시트 (gpt-image-2) |
 | \`asset_generate_weapons\` | 무기 아이콘 일괄 생성 (gpt-image-1, 투명) |
 | \`asset_generate_image_gemini\` | 배경 이미지 생성 (Gemini) |
 | \`asset_edit_character_design\` | 캐릭터 디자인 수정 후 자동 재생성 |

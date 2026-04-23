@@ -27,7 +27,14 @@ export interface ComposedSheet {
 export async function composeSpritSheet(
   frames: FrameInfo[],
   outputPath: string,
-  padding: number = 0
+  padding: number = 0,
+  /**
+   * 열(column) 수 명시. 지정 시 cols × ceil(N/cols) 그리드에 배치.
+   * 미지정 시 정사각형에 가까운 sqrt 그리드(레거시 동작).
+   * - 1행 가로 스트립: cols = frames.length
+   * - 2행 그리드: cols = Math.ceil(frames.length / 2)
+   */
+  cols?: number,
 ): Promise<ComposedSheet> {
   if (frames.length === 0) throw new Error("No frames to compose");
 
@@ -54,13 +61,13 @@ export async function composeSpritSheet(
     })
   );
 
-  // 정사각형에 가까운 그리드 계산
-  const cols = Math.ceil(Math.sqrt(frames.length));
-  const rows = Math.ceil(frames.length / cols);
+  // 레이아웃 결정: cols 인자 우선, 없으면 정사각형 sqrt 그리드
+  const effectiveCols = cols && cols > 0 ? Math.min(cols, frames.length) : Math.ceil(Math.sqrt(frames.length));
+  const rows = Math.ceil(frames.length / effectiveCols);
 
   const cellW = frameW + padding;
   const cellH = frameH + padding;
-  const sheetW = cols * cellW - padding;
+  const sheetW = effectiveCols * cellW - padding;
   const sheetH = rows * cellH - padding;
 
   // 각 프레임의 좌표 계산 + composite 입력 준비
@@ -69,8 +76,8 @@ export async function composeSpritSheet(
   const positionedFrames: ComposedSheet["frames"] = [];
 
   for (let i = 0; i < frames.length; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
+    const col = i % effectiveCols;
+    const row = Math.floor(i / effectiveCols);
     const x = col * cellW;
     const y = row * cellH;
 
@@ -97,7 +104,7 @@ export async function composeSpritSheet(
     sheetHeight: sheetH,
     frameWidth: frameW,
     frameHeight: frameH,
-    cols,
+    cols: effectiveCols,
     rows,
     frames: positionedFrames,
   };

@@ -18,8 +18,10 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, DEFAULT_GAME_DESIGN_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
-import { generateImageOpenAI } from "../services/openai.js";
+import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
+import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 import {
   buildAssetPath,
   saveBase64File,
@@ -267,7 +269,9 @@ async function generateImage(
   prompt: string,
   provider: "openai" | "gemini",
   size: string,
-  aspectRatio?: string
+  aspectRatio?: string,
+  openaiModel?: "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+  background?: "transparent" | "opaque" | "auto",
 ): Promise<GenerateResult> {
   if (provider === "gemini") {
     const validRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
@@ -278,9 +282,10 @@ async function generateImage(
   const safeSize = validSizes.includes(size) ? size : "1024x1024";
   return generateImageOpenAI({
     prompt,
+    model: openaiModel,
     size: safeSize as "1024x1024",
     quality: "high",
-    background: "transparent",
+    background: background ?? "transparent",
   });
 }
 
@@ -879,20 +884,28 @@ Returns:
     "asset_generate_screen_background",
     {
       title: "Generate Screen Background",
-      description: `Generate a full-screen background for a specific game screen.
+      description: `Generate a full-screen background for a specific game screen (기본: OpenAI gpt-image-2).
+
+**Target Layer**: GameScene **Layer 0 (배경)** — \`style: parallax\` 시 sub-depth 0.0/0.1/0.2로 배치. 자세한 레이어 시스템은 \`templates/docs/layer-system.md\` 참조.
 
 Supports:
-- "static": Single background image
+- "static": Single background image — **openai/gpt-image-2 권장** (불투명 PNG, 디테일 우수)
 - "parallax": 3 layers (far/mid/near) for parallax scrolling
-  - far  = SW×2.5 width (sky, distant horizon)
-  - mid  = SW×3.5 width (midground elements, transparent PNG)
-  - near = SW×5.0 width (foreground elements, transparent PNG)
+  - far  = SW×2.5 width (sky, distant horizon) — openai/gpt-image-2 가능 (불투명)
+  - mid  = SW×3.5 width (midground elements, **투명 PNG 필요 → provider: "gemini" 권장**)
+  - near = SW×5.0 width (foreground elements, **투명 PNG 필요 → provider: "gemini" 권장**)
+
+**주의**: gpt-image-2는 네이티브 투명 배경을 지원하지 않습니다.
+- static 배경 (불투명): openai/gpt-image-2가 최적
+- parallax mid/near 레이어 (투명 필수): Gemini Imagen 또는 openai+magenta 크로마키 후처리 필요.
+  현재 이 도구는 간단화를 위해 parallax 시 provider 그대로 적용 — 투명 레이어가 필요하면 provider: "gemini" 지정하세요.
 
 Args:
   - screen_name (string): Name of the screen
   - description (string): Detailed background description
   - style (string, optional): "static" | "parallax" (default: "static")
-  - provider (string, optional): "openai" | "gemini" (default: "gemini")
+  - provider (string, optional): "openai" (default, gpt-image-2) | "gemini" (parallax 투명 레이어용)
+  - model (string, optional): OpenAI 모델. 기본: gpt-image-2
   - aspect_ratio (string, optional): "9:16" | "16:9" | "1:1" (default: "9:16")
   - concept_file (string, optional): Path to game concept
   - output_dir (string, optional): Output directory
@@ -903,7 +916,8 @@ Returns:
         screen_name: z.string().min(1).max(200).describe("Screen name for this background"),
         description: z.string().min(10).max(3000).describe("Detailed background description"),
         style: z.enum(["static", "parallax"]).default("static").describe("Background type"),
-        provider: z.enum(["openai", "gemini"]).default("gemini").describe("AI provider"),
+        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider. 기본: openai(gpt-image-2). parallax 투명 레이어엔 'gemini' 권장."),
+        model: z.string().optional().describe("OpenAI 모델 override. 기본: gpt-image-2"),
         aspect_ratio: z.enum(["9:16", "16:9", "1:1", "3:4", "4:3"]).default("9:16"),
         concept_file: z.string().optional(),
         design_file: z.string().optional(),
@@ -926,9 +940,23 @@ Returns:
 
         const results: Array<{ layer: string; file_path: string; success: boolean; error?: string }> = [];
 
+        const openaiModel = (params.model ?? "gpt-image-2") as
+          | "gpt-image-2"
+          | "gpt-image-1.5"
+          | "gpt-image-1"
+          | "gpt-image-1-mini";
+
         if (params.style === "static") {
           try {
-            const result = await generateImage(BASE_PROMPT + " Complete scene with full foreground, midground, and background.", params.provider, "1024x1024", params.aspect_ratio);
+            // static 배경은 불투명 PNG가 표준. gpt-image-2는 투명 미지원이라 "opaque" 명시.
+            const result = await generateImage(
+              BASE_PROMPT + " Complete scene with full foreground, midground, and background.",
+              params.provider,
+              "1024x1024",
+              params.aspect_ratio,
+              openaiModel,
+              "opaque",
+            );
             const fileName = `bg_${safeScreenName}.png`;
             const filePath = buildAssetPath(outputDir, "backgrounds", fileName);
             ensureDir(path.dirname(filePath));
@@ -954,7 +982,20 @@ Returns:
           for (const layer of LAYERS) {
             try {
               const prompt = `${BASE_PROMPT} ${layer.promptExtra}`;
-              const result = await generateImage(prompt, params.provider, "1792x1024", layer.aspectRatio as "16:9");
+              // mid/near는 투명 배경 필요하나 gpt-image-2 미지원.
+              // provider: "gemini" 지정 시 Gemini 경로로 처리됨.
+              const needsTransparent = layer.id !== "far";
+              const layerBackground = needsTransparent && params.provider === "openai"
+                ? "transparent" as const  // shim이 auto로 강등 → 결과는 불투명일 수 있음 (gemini 권장)
+                : (layer.id === "far" ? "opaque" as const : "transparent" as const);
+              const result = await generateImage(
+                prompt,
+                params.provider,
+                "1792x1024",
+                layer.aspectRatio as "16:9",
+                openaiModel,
+                layerBackground,
+              );
               const fileName = `bg_${safeScreenName}${layer.suffix}.png`;
               const filePath = buildAssetPath(outputDir, "backgrounds", fileName);
               ensureDir(path.dirname(filePath));
@@ -1094,6 +1135,359 @@ Returns:
           content: [{ type: "text" as const, text: handleApiError(error, "Popup Set") }],
           isError: true,
         };
+      }
+    }
+  );
+
+  // ── 7. 로딩 화면 ────────────────────────────────────────────────────────────
+  registerLoadingScreenTool(server);
+
+  // ── 8. 로비/메인 화면 ───────────────────────────────────────────────────────
+  registerLobbyScreenTool(server);
+}
+
+// ─── 로딩 화면 구현 ──────────────────────────────────────────────────────────
+
+function registerLoadingScreenTool(server: McpServer): void {
+  server.registerTool(
+    "asset_generate_loading_screen",
+    {
+      title: "Generate Game Loading Screen",
+      description: `게임 로딩 화면을 1장 생성합니다 (기본: OpenAI gpt-image-2, 불투명 풀스크린).
+
+**Target Scene**: **LoadingScene** (풀스크린 배경) — depth/layer 체계 밖의 Scene 레벨 에셋. GameScene과 다른 별도 씬으로 사용. 자세한 Scene vs Layer 구분은 \`templates/docs/layer-system.md\` 참조.
+
+**특징**:
+- 중앙 하단에 로딩 인디케이터 / 프로그레스 바가 놓일 공간 확보 (하단 20% 여백)
+- 몰입감 있는 분위기 아트, 게임 스타일·팔레트 반영
+- 레퍼런스 이미지(hero_image_path / background_image_path) 제공 시 gpt-image-2 edit API로 합성 → 일관성·디테일 우수
+
+**사용 팁**:
+- 히어로 캐릭터 PNG 1장을 hero_image_path로 넘기면 그 캐릭터를 중앙/한 쪽에 실루엣이나 포즈로 배치하는 로딩 아트 생성
+- CONCEPT.md에서 자동으로 아트 스타일·팔레트 힌트를 읽어옴
+
+Args:
+  - game_name (string): 게임 이름
+  - description (string, optional): 로딩 화면 아트 방향 (예: "어두운 던전 입구, 횃불 빛, 긴장감")
+  - hero_image_path (string, optional): 히어로 캐릭터 레퍼런스 PNG
+  - background_image_path (string, optional): 배경 레퍼런스 PNG
+  - aspect_ratio (string, optional): "16:9" (기본), "9:16", "1:1"
+  - model (string, optional): OpenAI 모델. 기본: gpt-image-2
+  - refine_prompt (boolean, optional): GPT-5로 프롬프트 확장 (기본: false)
+  - concept_file (string, optional): CONCEPT.md 경로
+  - design_file (string, optional): GAME_DESIGN.json 경로
+  - output_dir (string, optional): 출력 디렉토리
+
+Returns:
+  생성된 로딩 화면 PNG 파일 경로 + 메타데이터.`,
+      inputSchema: z.object({
+        game_name: z.string().min(1).max(100).describe("게임 이름"),
+        description: z.string().max(2000).optional().describe("아트 방향 설명"),
+        hero_image_path: z.string().optional().describe("히어로 레퍼런스 이미지 경로"),
+        background_image_path: z.string().optional().describe("배경 레퍼런스 이미지 경로"),
+        aspect_ratio: z.enum(["16:9", "9:16", "1:1"]).default("16:9").describe("종횡비"),
+        model: z.string().optional().describe("OpenAI 모델 override. 기본: gpt-image-2"),
+        refine_prompt: z.boolean().default(false).describe("GPT-5로 프롬프트 확장 후 생성"),
+        concept_file: z.string().optional(),
+        design_file: z.string().optional(),
+        output_dir: z.string().optional(),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      const latency = startLatencyTracker();
+      try {
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+        const styleHint = loadStyleHint(params.concept_file, params.design_file);
+        const safeName = params.game_name.toLowerCase().replace(/\s+/g, "_").replace(/[^\w가-힣-]/g, "");
+
+        const basePrompt = [
+          `2D game LOADING SCREEN artwork for "${params.game_name}".`,
+          params.description ? `Scene: ${params.description}.` : "",
+          styleHint ? `Art style: ${styleHint}.` : "",
+          `COMPOSITION: atmospheric full-screen illustration. Focal subject in upper 60% of frame. ` +
+          `Leave the BOTTOM 20-25% visually quieter (no busy details) — this area will hold a loading indicator/progress bar. ` +
+          `No UI elements, no buttons, no text rendered in the image.`,
+          `Cinematic lighting, immersive mood, rich environmental detail.`,
+          `${NO_TEXT_IN_IMAGE}`,
+        ].filter(Boolean).join(" ");
+
+        // GPT-5 refine (opt-in)
+        let prompt = basePrompt;
+        let refinedByGPT5 = false;
+        if (params.refine_prompt) {
+          try {
+            prompt = await refineImagePrompt({
+              userDescription: basePrompt,
+              targetModel: (params.model ?? "gpt-image-2") as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+              assetType: "background",
+              conceptHint: styleHint,
+            });
+            refinedByGPT5 = true;
+          } catch (e) {
+            console.warn(`[refine_prompt] loading_screen refinement failed: ${e instanceof Error ? e.message : e}`);
+          }
+        }
+
+        // 레퍼런스 수집
+        const refPaths: string[] = [];
+        if (params.background_image_path) {
+          if (!fs.existsSync(params.background_image_path)) throw new Error(`background_image_path 파일 없음: ${params.background_image_path}`);
+          refPaths.push(params.background_image_path);
+        }
+        if (params.hero_image_path) {
+          if (!fs.existsSync(params.hero_image_path)) throw new Error(`hero_image_path 파일 없음: ${params.hero_image_path}`);
+          refPaths.push(params.hero_image_path);
+        }
+
+        const effectiveModel = (params.model ?? "gpt-image-2") as
+          | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+
+        const size = params.aspect_ratio === "9:16" ? "1024x1536"
+          : params.aspect_ratio === "1:1" ? "1024x1024"
+          : "1536x1024";
+
+        let base64: string;
+        let generationMethod: string;
+
+        if (refPaths.length > 0) {
+          const r = await editImageOpenAI({
+            imagePaths: refPaths,
+            prompt,
+            model: effectiveModel,
+            size: size as "1024x1024" | "1536x1024" | "1024x1536",
+          });
+          base64 = r.base64;
+          generationMethod = `openai_${effectiveModel}_edit (${refPaths.length} refs)`;
+        } else {
+          const r = await generateImageOpenAI({
+            prompt,
+            model: effectiveModel,
+            size: size as "1024x1024" | "1536x1024" | "1024x1536",
+            quality: "high",
+            background: "opaque",
+          });
+          base64 = r.base64;
+          generationMethod = `openai_${effectiveModel}_${size}`;
+        }
+
+        const fileName = `loading_${safeName}.png`;
+        const filePath = buildAssetPath(outputDir, "screens/loading", fileName);
+        ensureDir(path.dirname(filePath));
+        saveBase64File(base64, filePath);
+
+        const asset: GeneratedAsset = {
+          id: generateAssetId(), type: "image", asset_type: "background",
+          provider: "openai", prompt, file_path: filePath,
+          file_name: fileName, mime_type: "image/png",
+          created_at: new Date().toISOString(),
+          metadata: {
+            screen_type: "loading",
+            game_name: params.game_name,
+            aspect_ratio: params.aspect_ratio,
+            generation_method: generationMethod,
+            reference_images: refPaths,
+            refined_by_gpt5: refinedByGPT5,
+            ...(refPaths.length > 0
+              ? buildEditCostTelemetry(effectiveModel, size, latency.elapsed(), refPaths.length)
+              : buildCostTelemetry(effectiveModel, "high", size, latency.elapsed())),
+          },
+        };
+        saveAssetToRegistry(asset, outputDir);
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              success: true,
+              screen_type: "loading",
+              file_path: filePath,
+              asset_id: asset.id,
+              aspect_ratio: params.aspect_ratio,
+              generation_method: generationMethod,
+              reference_images_used: refPaths.length,
+              refined_by_gpt5: refinedByGPT5,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: handleApiError(error, "Loading Screen") }], isError: true };
+      }
+    }
+  );
+}
+
+// ─── 로비/메인 메뉴 화면 구현 ────────────────────────────────────────────────
+
+function registerLobbyScreenTool(server: McpServer): void {
+  server.registerTool(
+    "asset_generate_lobby_screen",
+    {
+      title: "Generate Game Lobby / Main Menu Screen",
+      description: `게임 로비/메인 메뉴 화면을 생성합니다 (기본: OpenAI gpt-image-2, 불투명 풀스크린).
+
+**Target Scene**: **LobbyScene / MainMenuScene** (풀스크린 배경) — depth/layer 체계 밖의 Scene 레벨. 메뉴 UI는 \`menu_side\` 영역 위에 별도로 렌더링.
+
+**특징**:
+- 히어로 쇼케이스 구도 (히어로 이미지 제공 시 중앙~한쪽에 포즈로 배치)
+- 메뉴 UI가 올라갈 공간 확보 (menu_side 파라미터로 지정: left/right/center/bottom)
+- CONCEPT.md 스타일 힌트 자동 적용
+- 레퍼런스 이미지(hero/background) 다중 합성 가능
+
+Args:
+  - game_name (string): 게임 이름
+  - description (string, optional): 아트 방향 설명
+  - hero_image_path (string, optional): 히어로 레퍼런스
+  - background_image_path (string, optional): 배경 레퍼런스
+  - menu_side (string, optional): 메뉴 UI가 놓일 영역 — "left" / "right" / "center" / "bottom" (기본: "right")
+  - aspect_ratio (string, optional): "16:9" (기본), "9:16", "1:1"
+  - model (string, optional): OpenAI 모델. 기본: gpt-image-2
+  - refine_prompt (boolean, optional): GPT-5 리파인 (기본: false)
+  - concept_file, design_file, output_dir
+
+Returns:
+  생성된 로비 화면 PNG 경로.`,
+      inputSchema: z.object({
+        game_name: z.string().min(1).max(100),
+        description: z.string().max(2000).optional(),
+        hero_image_path: z.string().optional(),
+        background_image_path: z.string().optional(),
+        menu_side: z.enum(["left", "right", "center", "bottom"]).default("right")
+          .describe("메뉴 UI 영역. 해당 영역은 시각적으로 덜 복잡하게 생성됨"),
+        aspect_ratio: z.enum(["16:9", "9:16", "1:1"]).default("16:9"),
+        model: z.string().optional(),
+        refine_prompt: z.boolean().default(false),
+        concept_file: z.string().optional(),
+        design_file: z.string().optional(),
+        output_dir: z.string().optional(),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      const latency = startLatencyTracker();
+      try {
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+        const styleHint = loadStyleHint(params.concept_file, params.design_file);
+        const safeName = params.game_name.toLowerCase().replace(/\s+/g, "_").replace(/[^\w가-힣-]/g, "");
+
+        const sideInstruction: Record<string, string> = {
+          left: "LEFT HALF should be visually quieter (simpler background, fewer details) — menu UI will be placed there. Hero subject in RIGHT HALF.",
+          right: "RIGHT HALF should be visually quieter (simpler background, fewer details) — menu UI will be placed there. Hero subject in LEFT HALF.",
+          center: "Upper 60% contains the focal hero/scene. Lower 40% is visually quieter — menu UI will be placed there.",
+          bottom: "Upper 70% contains the full scene with hero. BOTTOM 30% is visually quieter — bottom menu bar will be placed there.",
+        };
+
+        const basePrompt = [
+          `2D game LOBBY / MAIN MENU screen artwork for "${params.game_name}".`,
+          params.description ? `Scene description: ${params.description}.` : "",
+          styleHint ? `Art style: ${styleHint}.` : "",
+          `HERO SHOWCASE composition — the player's hero character should be the visual focal point, confident pose, cinematic lighting.`,
+          `LAYOUT: ${sideInstruction[params.menu_side]}`,
+          `High-quality marketing-grade illustration. Rich environmental detail but NOT busy where UI will be placed.`,
+          `No UI elements, no buttons, no text rendered in the image.`,
+          `${NO_TEXT_IN_IMAGE}`,
+        ].filter(Boolean).join(" ");
+
+        let prompt = basePrompt;
+        let refinedByGPT5 = false;
+        if (params.refine_prompt) {
+          try {
+            prompt = await refineImagePrompt({
+              userDescription: basePrompt,
+              targetModel: (params.model ?? "gpt-image-2") as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+              assetType: "thumbnail",
+              conceptHint: styleHint,
+            });
+            refinedByGPT5 = true;
+          } catch (e) {
+            console.warn(`[refine_prompt] lobby_screen refinement failed: ${e instanceof Error ? e.message : e}`);
+          }
+        }
+
+        const refPaths: string[] = [];
+        if (params.background_image_path) {
+          if (!fs.existsSync(params.background_image_path)) throw new Error(`background_image_path 파일 없음: ${params.background_image_path}`);
+          refPaths.push(params.background_image_path);
+        }
+        if (params.hero_image_path) {
+          if (!fs.existsSync(params.hero_image_path)) throw new Error(`hero_image_path 파일 없음: ${params.hero_image_path}`);
+          refPaths.push(params.hero_image_path);
+        }
+
+        const effectiveModel = (params.model ?? "gpt-image-2") as
+          | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+
+        const size = params.aspect_ratio === "9:16" ? "1024x1536"
+          : params.aspect_ratio === "1:1" ? "1024x1024"
+          : "1536x1024";
+
+        let base64: string;
+        let generationMethod: string;
+
+        if (refPaths.length > 0) {
+          const r = await editImageOpenAI({
+            imagePaths: refPaths,
+            prompt,
+            model: effectiveModel,
+            size: size as "1024x1024" | "1536x1024" | "1024x1536",
+          });
+          base64 = r.base64;
+          generationMethod = `openai_${effectiveModel}_edit (${refPaths.length} refs)`;
+        } else {
+          const r = await generateImageOpenAI({
+            prompt,
+            model: effectiveModel,
+            size: size as "1024x1024" | "1536x1024" | "1024x1536",
+            quality: "high",
+            background: "opaque",
+          });
+          base64 = r.base64;
+          generationMethod = `openai_${effectiveModel}_${size}`;
+        }
+
+        const fileName = `lobby_${safeName}.png`;
+        const filePath = buildAssetPath(outputDir, "screens/lobby", fileName);
+        ensureDir(path.dirname(filePath));
+        saveBase64File(base64, filePath);
+
+        const asset: GeneratedAsset = {
+          id: generateAssetId(), type: "image", asset_type: "background",
+          provider: "openai", prompt, file_path: filePath,
+          file_name: fileName, mime_type: "image/png",
+          created_at: new Date().toISOString(),
+          metadata: {
+            screen_type: "lobby",
+            game_name: params.game_name,
+            menu_side: params.menu_side,
+            aspect_ratio: params.aspect_ratio,
+            generation_method: generationMethod,
+            reference_images: refPaths,
+            refined_by_gpt5: refinedByGPT5,
+            ...(refPaths.length > 0
+              ? buildEditCostTelemetry(effectiveModel, size, latency.elapsed(), refPaths.length)
+              : buildCostTelemetry(effectiveModel, "high", size, latency.elapsed())),
+          },
+        };
+        saveAssetToRegistry(asset, outputDir);
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: JSON.stringify({
+              success: true,
+              screen_type: "lobby",
+              file_path: filePath,
+              asset_id: asset.id,
+              menu_side: params.menu_side,
+              aspect_ratio: params.aspect_ratio,
+              generation_method: generationMethod,
+              reference_images_used: refPaths.length,
+              refined_by_gpt5: refinedByGPT5,
+            }, null, 2),
+          }],
+        };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: handleApiError(error, "Lobby Screen") }], isError: true };
       }
     }
   );

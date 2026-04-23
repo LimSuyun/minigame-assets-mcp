@@ -37,6 +37,7 @@ import { registerSoundExtTools } from "./tools/sound-ext.js";
 import { registerMarketingExtTools } from "./tools/marketing-ext.js";
 import { registerTutorialTools } from "./tools/tutorial.js";
 import { registerFontTools } from "./tools/font.js";
+import { registerReviewTools } from "./tools/review.js";
 
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ registerSoundExtTools(server);
 registerMarketingExtTools(server);
 registerTutorialTools(server);
 registerFontTools(server);
+registerReviewTools(server);
 
 // ─── Transport ────────────────────────────────────────────────────────────────
 

@@ -14,6 +14,7 @@ import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
+import { refineImagePrompt } from "../services/gpt5-prompt.js";
 import {
   ensureDir,
   saveBase64File,
@@ -251,19 +252,20 @@ Returns:
     "asset_generate_thumbnail",
     {
       title: "Generate Game Thumbnail (1932×828)",
-      description: `게임 썸네일을 1932×828px PNG로 **새로 생성**합니다.
+      description: `게임 썸네일을 1932×828px PNG로 **새로 생성**합니다 (기본: OpenAI gpt-image-2).
 
-레퍼런스 이미지(캐릭터, 배경)를 제공하면 AI가 해당 스타일과 캐릭터를 참고해
-**완전히 새로운 썸네일 이미지를 생성**합니다. (단순 합성이 아님)
+**강력 권장 워크플로우**: 캐릭터 PNG와 배경 PNG를 레퍼런스로 넣어 **edit 방식으로 합성**하세요.
+단순 text-to-image보다 일관성·디테일이 월등하며, gpt-image-2는 여러 레퍼런스를 받아
+구도를 새로 짜고 스타일을 맞춰줍니다.
 
 **생성 방식**:
-1. **레퍼런스 이미지 제공 시** (character_image_paths / background_image_path):
-   - OpenAI gpt-image-1 Image Edit API에 레퍼런스로 전달
-   - AI가 해당 캐릭터/스타일/분위기를 이해하고 새 씬을 창작
+1. **레퍼런스 이미지 제공 시** (권장, character_image_paths + background_image_path):
+   - OpenAI gpt-image-2 Image Edit API에 레퍼런스 다중 전달
+   - AI가 해당 캐릭터/스타일/분위기를 이해하고 새 씬을 창작 (최대 4 캐릭터 + 1 배경)
    - → 1536×1024 생성 후 1932×828 크롭
 
-2. **레퍼런스 없음 — 텍스트 프롬프트만**:
-   - openai: gpt-image-1로 1792×1024 생성 → 1932×828 크롭
+2. **레퍼런스 없음 — 텍스트 프롬프트만** (품질 저하, 비권장):
+   - openai: gpt-image-2로 1792×1024 생성 → 1932×828 크롭
    - gemini: Imagen 4 16:9 생성 → 1932×828 크롭
 
 3. **공통**: 게임 제목+태그라인을 SVG로 합성 (한글 정확 렌더링)
@@ -280,10 +282,11 @@ Args:
   - layout: 레이아웃 타입
   - color_scheme: light / dark
   - ai_prompt: 생성 프롬프트 (asset_plan_thumbnail 결과 활용 권장)
-  - character_image_paths: 캐릭터 PNG 경로 배열 (레퍼런스용, 최대 4개)
-  - background_image_path: 배경 이미지 경로 (레퍼런스용)
+  - character_image_paths: 캐릭터 PNG 경로 배열 (레퍼런스용, 최대 4개) — **강력 권장**
+  - background_image_path: 배경 이미지 경로 (레퍼런스용) — **강력 권장**
   - add_text: 제목+태그라인 SVG 텍스트 합성 여부 (기본: true)
   - provider: 레퍼런스 없을 때 사용할 AI (openai / gemini, 기본: openai)
+  - model: OpenAI 모델 (기본: gpt-image-2). "gpt-image-1", "gpt-image-1.5" 등으로 override 가능
   - quality: 생성 품질 (기본: high)
   - output_dir: 출력 경로
 
@@ -308,8 +311,12 @@ Returns:
           .describe("제목+태그라인 SVG 텍스트 합성 여부"),
         provider: z.enum(["openai", "gemini"]).default("openai")
           .describe("레퍼런스 이미지 없을 때 사용할 AI 제공자"),
+        model: z.string().optional()
+          .describe("OpenAI 모델 override. 기본: gpt-image-2 (품질 최고). 대안: gpt-image-1, gpt-image-1-mini (빠름/저렴)"),
+        refine_prompt: z.boolean().default(false)
+          .describe("GPT-5(기본: gpt-5.4-nano)로 ai_prompt를 상세화. ai_prompt 미제공 시 buildThumbnailPrompt 결과를 확장. 기본: false"),
         quality: z.enum(["low", "medium", "high", "auto"]).default("high")
-          .describe("생성 품질 (openai gpt-image-1 기준)"),
+          .describe("생성 품질 (gpt-image-2 기준)"),
         output_dir: z.string().optional().describe("출력 디렉토리"),
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -320,7 +327,7 @@ Returns:
         ensureDir(outputDir);
 
         // 프롬프트 결정
-        const prompt = params.ai_prompt || buildThumbnailPrompt({
+        let prompt = params.ai_prompt || buildThumbnailPrompt({
           game_name: params.game_name,
           genre: params.genre,
           art_style: params.art_style,
@@ -331,6 +338,23 @@ Returns:
           characters: [],
           custom_prompt: undefined,
         });
+
+        // GPT-5 프롬프트 리파인 (opt-in)
+        let refinedByGPT5 = false;
+        if (params.refine_prompt) {
+          try {
+            prompt = await refineImagePrompt({
+              userDescription: prompt,
+              targetModel: (params.model ?? "gpt-image-2") as
+                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+              assetType: "thumbnail",
+              conceptHint: `Game: ${params.game_name} — Genre: ${params.genre} — Art style: ${params.art_style} — Theme: ${params.theme}${params.tagline ? ` — Tagline: ${params.tagline}` : ""}`,
+            });
+            refinedByGPT5 = true;
+          } catch (refineErr) {
+            console.warn(`[refine_prompt] thumbnail refinement failed, using original: ${refineErr instanceof Error ? refineErr.message : refineErr}`);
+          }
+        }
 
         // 레퍼런스 이미지 수집
         const refPaths: string[] = [];
@@ -352,30 +376,39 @@ Returns:
 
         const tmpPath = path.join(outputDir, `_tmp_thumb_${Date.now()}.png`);
 
+        const effectiveModel = (params.model ?? "gpt-image-2") as
+          | "gpt-image-2"
+          | "gpt-image-1.5"
+          | "gpt-image-1"
+          | "gpt-image-1-mini";
+
         if (refPaths.length > 0) {
-          // ── 레퍼런스 이미지 기반: gpt-image-1 edit API ──
+          // ── 레퍼런스 이미지 기반: OpenAI edit API (기본: gpt-image-2) ──
+          // 캐릭터 + 배경을 다중 레퍼런스로 전달 → AI가 구도 새로 짜서 썸네일 합성
           const r = await editImageOpenAI({
             imagePaths: refPaths,
             prompt,
+            model: effectiveModel,
             size: "1536x1024",
           });
           base64 = r.base64;
-          generationMethod = `openai_edit (${refPaths.length} refs)`;
+          generationMethod = `openai_${effectiveModel}_edit (${refPaths.length} refs)`;
         } else if (params.provider === "gemini") {
           // ── Gemini Imagen 16:9 ──
           const r = await generateImageGemini({ prompt, aspectRatio: "16:9" });
           base64 = r.base64;
           generationMethod = "gemini_imagen_16:9";
         } else {
-          // ── OpenAI gpt-image-1 wide ──
+          // ── OpenAI wide (기본: gpt-image-2) ──
           const r = await generateImageOpenAI({
             prompt,
+            model: effectiveModel,
             size: "1792x1024",
             quality: params.quality,
             background: "opaque",
           });
           base64 = r.base64;
-          generationMethod = "openai_gpt-image-1_1792x1024";
+          generationMethod = `openai_${effectiveModel}_1792x1024`;
         }
 
         // ── 1932×828 리사이즈 (cover crop) ──
@@ -422,6 +455,8 @@ Returns:
             generation_method: generationMethod,
             reference_images: refPaths,
             add_text: params.add_text,
+            refined_by_gpt5: refinedByGPT5,
+            ...(refinedByGPT5 ? { refined_prompt: prompt } : {}),
           },
         }, outputDir);
 

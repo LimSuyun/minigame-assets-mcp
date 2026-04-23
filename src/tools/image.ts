@@ -5,6 +5,7 @@ import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, ASSET_TYPES, NO_PADDING_TYPES } from "../constants.js";
 import { generateImageOpenAI, generateImageWithResponses } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
+import { refineImagePrompt } from "../services/gpt5-prompt.js";
 import { OPENAI_IMAGE_MODELS } from "../constants.js";
 import {
   buildAssetPath,
@@ -62,8 +63,10 @@ function buildStyledPrompt(prompt: string, baseStyle: string): string {
  * - background → Gemini (넓은 배경 장면에 강함)
  * - 그 외 (character, sprite, icon, ui_element, tile, effect, logo 등) → OpenAI (투명 배경, 단일 오브젝트)
  */
-function getDefaultProvider(assetType: string): "openai" | "gemini" {
-  return assetType === "background" ? "gemini" : "openai";
+function getDefaultProvider(_assetType: string): "openai" | "gemini" {
+  // 모든 에셋 타입 기본 openai(gpt-image-2). 배경도 gpt-image-2가 디테일/텍스트 품질 우수.
+  // 투명 레이어가 필수인 파라락스 mid/near 같은 특수 케이스는 도구별로 별도 처리.
+  return "openai";
 }
 
 /**
@@ -140,6 +143,7 @@ Returns:
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).default("1024x1024").describe("Generation size"),
         quality: z.enum(["low", "medium", "high", "auto"]).default("auto").describe("Generation quality"),
         background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG (gpt-image-2는 미지원 → auto로 자동 강등, 크로마키 후처리 필요)"),
+        refine_prompt: z.boolean().default(false).describe("GPT-5(기본: gpt-5.4-nano)로 prompt를 상세 영문으로 확장 후 이미지 생성. 짧거나 한국어 입력에 유용. 기본: false"),
         use_concept: z.boolean().default(true).describe("Inject game concept into prompt"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -156,7 +160,27 @@ Returns:
         const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
         const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
         const conceptHint = params.use_concept ? loadConceptForPrompt(conceptFile) : "";
-        const enrichedPrompt = buildEnrichedPrompt(params.prompt, params.asset_type, conceptHint);
+
+        // GPT-5 프롬프트 리파인 (opt-in)
+        let userPrompt = params.prompt;
+        let refinedByGPT5 = false;
+        if (params.refine_prompt) {
+          try {
+            userPrompt = await refineImagePrompt({
+              userDescription: params.prompt,
+              targetModel: params.model as
+                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+              assetType: params.asset_type as
+                | "character" | "background" | "thumbnail" | "sprite" | "weapon" | "icon" | "logo" | "other",
+              conceptHint,
+            });
+            refinedByGPT5 = true;
+          } catch (refineErr) {
+            console.warn(`[refine_prompt] image_openai refinement failed, using original: ${refineErr instanceof Error ? refineErr.message : refineErr}`);
+          }
+        }
+
+        const enrichedPrompt = buildEnrichedPrompt(userPrompt, params.asset_type, conceptHint);
 
         const result = await generateImageOpenAI({
           prompt: enrichedPrompt,
@@ -189,6 +213,8 @@ Returns:
             revised_prompt: result.revisedPrompt,
             size: params.size,
             quality: params.quality,
+            refined_by_gpt5: refinedByGPT5,
+            ...(refinedByGPT5 ? { refined_prompt: userPrompt } : {}),
           },
         };
 
@@ -205,6 +231,7 @@ Returns:
                 revised_prompt: result.revisedPrompt,
                 asset_type: params.asset_type,
                 provider: "openai",
+                refined_by_gpt5: refinedByGPT5,
               }, null, 2),
             },
           ],
