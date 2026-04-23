@@ -7,6 +7,31 @@
 
 ## [Unreleased]
 
+### ✨ Added
+
+- **엔진 기반 자동 WebP/PNG 포맷 선택** — 신규 `src/utils/image-output.ts` 헬퍼가
+  `cwd` 에서 게임 엔진(Phaser / Cocos Creator / Godot / Unity / unknown)을 감지해
+  WebP 를 지원하는 엔진이면 WebP, 아니면 PNG 로 저장. Phaser 프로젝트 기준 캐릭터
+  베이스 2MB → 250KB (**-87.7%**) 용량 감소 실측.
+- 환경변수 `ASSET_OUTPUT_FORMAT=png|webp` 로 전역 override, 각 도구 호출 시
+  `options.format` 로 per-call override 가능.
+- PNG pass-through 최적화 — 입력이 이미 PNG 이고 PNG 으로 저장할 때 sharp 재인코딩
+  없이 원본 바이트 그대로 쓰기 (재인코딩 시 오히려 ~15% 커지는 현상 회피).
+
+### 🔧 Changed
+
+- `asset_generate_character_base`, `asset_generate_action_sprite`(Gemini),
+  `asset_generate_sprite_sheet`, `asset_generate_character_weapon_sprites`
+  — 4개 도구의 최종 쓰기가 `writeOptimized()` 로 전환됨. asset registry 의
+  `file_path` / `file_name` / `mime_type` 이 실제 저장 포맷에 맞춰 자동 업데이트됨.
+
+### 📝 Notes
+
+- 나머지 이미지 생성 도구(logo, thumbnail, environment, characters-ext portraits,
+  ui, effects, tutorial, marketing 등)는 후속 커밋에서 동일 헬퍼로 전환 예정.
+- 스프라이트 시트 컴포저(`composeSpritSheet`) 는 현재 여전히 PNG 저장 — 컴포저
+  리팩토링 후 엔진 감지 반영.
+
 ## [2.1.0] - 2026-04-23
 
 ### ✨ Added

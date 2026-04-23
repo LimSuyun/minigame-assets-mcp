@@ -23,6 +23,7 @@ import {
 } from "../utils/spritesheet-composer.js";
 import { handleApiError } from "../utils/errors.js";
 import { processFrameBase64, removeBackground, compositeOntoSolidBg, processFrameBase64AI, processFrameBase64Chroma } from "../utils/image-process.js";
+import { writeOptimized } from "../utils/image-output.js";
 import { checkSpriteFrameQuality } from "../services/vision-qc.js";
 import { editImageOpenAI } from "../services/openai.js";
 import { refineImagePrompt } from "../services/gpt5-prompt.js";
@@ -368,10 +369,10 @@ Returns:
         }
 
         const safeCharName = params.character_name.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const fileName = `${safeCharName}_base.png`;
-        const filePath = buildAssetPath(outputDir, `sprites/${safeCharName}`, fileName);
-        ensureDir(path.dirname(filePath));
-        fs.writeFileSync(filePath, processedBuffer);
+        const pathBase = buildAssetPath(outputDir, `sprites/${safeCharName}`, `${safeCharName}_base.png`);
+        const written = await writeOptimized(processedBuffer, pathBase);
+        const filePath = written.path;
+        const fileName = path.basename(filePath);
 
         const asset: GeneratedAsset = {
           id: generateAssetId(),
@@ -381,7 +382,7 @@ Returns:
           prompt: params.description,
           file_path: filePath,
           file_name: fileName,
-          mime_type: "image/png",
+          mime_type: written.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             character_name: params.character_name,
@@ -729,10 +730,14 @@ Returns:
           path.basename(params.base_character_path).replace(/_base\.[^.]+$/, "");
         const safeCharName = charName.replace(/[^a-zA-Z0-9_-]/g, "_");
         const safeAction = params.action.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const fileName = `${safeCharName}_${safeAction}_f${String(params.frame_index).padStart(2, "0")}.png`;
-        const filePath = buildAssetPath(outputDir, `sprites/${safeCharName}`, fileName);
-        ensureDir(path.dirname(filePath));
-        fs.writeFileSync(filePath, processedBuffer);
+        const pathBase = buildAssetPath(
+          outputDir,
+          `sprites/${safeCharName}`,
+          `${safeCharName}_${safeAction}_f${String(params.frame_index).padStart(2, "0")}.png`
+        );
+        const written = await writeOptimized(processedBuffer, pathBase);
+        const filePath = written.path;
+        const fileName = path.basename(filePath);
 
         const asset: GeneratedAsset = {
           id: generateAssetId(),
@@ -742,7 +747,7 @@ Returns:
           prompt: finalEditPrompt,
           file_path: filePath,
           file_name: fileName,
-          mime_type: "image/png",
+          mime_type: written.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             character_name: charName,
@@ -1097,9 +1102,13 @@ Returns:
             }
 
             const safeAction = action.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `${safeCharName}_${safeAction}_f${String(frameIdx).padStart(2, "0")}.png`;
-            const filePath = path.join(spriteDir, fileName);
-            fs.writeFileSync(filePath, processedBuffer);
+            const pathBase = path.join(
+              spriteDir,
+              `${safeCharName}_${safeAction}_f${String(frameIdx).padStart(2, "0")}.png`
+            );
+            const written = await writeOptimized(processedBuffer, pathBase);
+            const filePath = written.path;
+            const fileName = path.basename(filePath);
 
             const frame: SpriteFrame = {
               name: `${action}_f${String(frameIdx).padStart(2, "0")}`,
@@ -1120,7 +1129,7 @@ Returns:
               prompt: basePrompt,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: written.format === "webp" ? "image/webp" : "image/png",
               created_at: new Date().toISOString(),
               metadata: {
                 character_name: params.character_name,
@@ -1405,11 +1414,15 @@ Returns:
                   return addPaddingToBuffer(processedBuffer, 20);
                 })();
 
-                // 저장 경로: {output_dir}/sprites/{character_id}/{weapon_id}/{action}_f{frame}.png
-                const fileName = `${safeCharId}_${safeWeaponId}_${action}_f${String(frameIdx).padStart(2, "0")}.png`;
-                const filePath = buildAssetPath(outputDir, `sprites/${safeCharId}/${safeWeaponId}`, fileName);
-                ensureDir(path.dirname(filePath));
-                fs.writeFileSync(filePath, processedBuffer);
+                // 저장 경로: {output_dir}/sprites/{character_id}/{weapon_id}/{action}_f{frame}.{png|webp}
+                const pathBase = buildAssetPath(
+                  outputDir,
+                  `sprites/${safeCharId}/${safeWeaponId}`,
+                  `${safeCharId}_${safeWeaponId}_${action}_f${String(frameIdx).padStart(2, "0")}.png`
+                );
+                const written = await writeOptimized(processedBuffer, pathBase);
+                const filePath = written.path;
+                const fileName = path.basename(filePath);
 
                 const asset: GeneratedAsset = {
                   id: generateAssetId(),
@@ -1419,7 +1432,7 @@ Returns:
                   prompt: editPrompt,
                   file_path: filePath,
                   file_name: fileName,
-                  mime_type: "image/png",
+                  mime_type: written.format === "webp" ? "image/webp" : "image/png",
                   created_at: new Date().toISOString(),
                   metadata: { character_id: params.character_id, weapon_id: weapon.id, action, frame_index: frameIdx },
                 };
