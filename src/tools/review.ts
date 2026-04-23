@@ -13,7 +13,7 @@
  *   - deep     : quick + 전수 비주얼 (높은 비용)
  *
  * 기존 자원 재사용:
- *   - checkSpriteFrameQuality (services/claude-vision.ts) — Gemini Vision 기반 프레임 체크
+ *   - checkSpriteFrameQuality (services/vision-qc.ts) — Gemini Vision 기반 프레임 체크
  *   - scanChromaResidue (utils/image-process.ts) — 크로마 픽셀 정량 측정
  */
 
@@ -24,7 +24,7 @@ import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { scanChromaResidue, type ChromaResidueReport } from "../utils/image-process.js";
-import { checkSpriteFrameQuality } from "../services/claude-vision.js";
+import { checkSpriteFrameQuality } from "../services/vision-qc.js";
 import { handleApiError } from "../utils/errors.js";
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────

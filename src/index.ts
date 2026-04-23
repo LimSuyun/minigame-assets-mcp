@@ -22,6 +22,7 @@ import express from "express";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve as resolvePath } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { registerConceptTools } from "./tools/concept.js";
 import { registerImageTools } from "./tools/image.js";
@@ -54,64 +55,104 @@ const pkg = JSON.parse(
 ) as { version: string };
 const SERVER_VERSION = pkg.version;
 
-const server = new McpServer({
-  name: "minigame-assets-mcp-server",
-  version: SERVER_VERSION,
-});
+function createMcpServer(): McpServer {
+  const server = new McpServer({
+    name: "minigame-assets-mcp-server",
+    version: SERVER_VERSION,
+  });
 
-// Register all tool groups
-registerConceptTools(server);
-registerWorkflowTools(server);
-registerProjectDetectorTools(server);
-registerDesignDocTools(server);
-registerCanonTools(server);
-registerImageTools(server);
-registerSpriteTools(server);
-registerUITools(server);
-registerEditTools(server);
-registerLogoTools(server);
-registerMusicTools(server);
-registerVideoTools(server);
-registerAssetUtilTools(server);
-registerThumbnailTools(server);
-registerEffectTools(server);
-registerCharacterExtTools(server);
-registerEnvironmentTools(server);
-registerSoundExtTools(server);
-registerMarketingExtTools(server);
-registerTutorialTools(server);
-registerFontTools(server);
-registerReviewTools(server);
+  registerConceptTools(server);
+  registerWorkflowTools(server);
+  registerProjectDetectorTools(server);
+  registerDesignDocTools(server);
+  registerCanonTools(server);
+  registerImageTools(server);
+  registerSpriteTools(server);
+  registerUITools(server);
+  registerEditTools(server);
+  registerLogoTools(server);
+  registerMusicTools(server);
+  registerVideoTools(server);
+  registerAssetUtilTools(server);
+  registerThumbnailTools(server);
+  registerEffectTools(server);
+  registerCharacterExtTools(server);
+  registerEnvironmentTools(server);
+  registerSoundExtTools(server);
+  registerMarketingExtTools(server);
+  registerTutorialTools(server);
+  registerFontTools(server);
+  registerReviewTools(server);
+
+  return server;
+}
 
 // ─── Transport ────────────────────────────────────────────────────────────────
 
 async function runStdio(): Promise<void> {
   const transport = new StdioServerTransport();
+  const server = createMcpServer();
   await server.connect(transport);
-  console.error("[minigame-assets-mcp] Running via stdio");
+  console.error(`[minigame-assets-mcp v${SERVER_VERSION}] Running via stdio`);
 }
 
 async function runHTTP(): Promise<void> {
   const app = express();
   app.use(express.json({ limit: "50mb" }));
 
-  app.post("/mcp", async (req, res) => {
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    res.on("close", () => transport.close());
-    await server.connect(transport);
+  // Stateful 세션 관리: 세션 ID → transport. initialize 요청이 오면 새 세션을
+  // 만들고, 후속 요청은 mcp-session-id 헤더로 같은 transport에 라우팅한다.
+  // 각 세션은 독립된 McpServer 인스턴스를 가지며 세션 종료 시 함께 정리된다.
+  const sessions = new Map<string, StreamableHTTPServerTransport>();
+
+  async function routeRequest(req: express.Request, res: express.Response): Promise<void> {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    let transport = sessionId ? sessions.get(sessionId) : undefined;
+
+    if (!transport) {
+      if (req.method !== "POST") {
+        res.status(400).json({
+          jsonrpc: "2.0",
+          error: { code: -32000, message: "Missing or unknown mcp-session-id" },
+          id: null,
+        });
+        return;
+      }
+
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true,
+        onsessioninitialized: (id: string) => {
+          sessions.set(id, transport!);
+        },
+      });
+      transport.onclose = () => {
+        const id = transport!.sessionId;
+        if (id) sessions.delete(id);
+      };
+      const server = createMcpServer();
+      await server.connect(transport);
+    }
+
     await transport.handleRequest(req, res, req.body);
-  });
+  }
+
+  app.post("/mcp", routeRequest);
+  app.get("/mcp", routeRequest);     // SSE stream resume
+  app.delete("/mcp", routeRequest);  // session termination
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", server: "minigame-assets-mcp-server", version: SERVER_VERSION });
+    res.json({
+      status: "ok",
+      server: "minigame-assets-mcp-server",
+      version: SERVER_VERSION,
+      active_sessions: sessions.size,
+    });
   });
 
   const port = parseInt(process.env.PORT || "3456");
   app.listen(port, () => {
-    console.error(`[minigame-assets-mcp] Running on http://localhost:${port}/mcp`);
+    console.error(`[minigame-assets-mcp v${SERVER_VERSION}] Running on http://localhost:${port}/mcp`);
   });
 }
 

@@ -32,6 +32,7 @@ Thumbs.db
 # Local process/notes documentation (not for public repo)
 PROCESS.md
 MCP_PLAN.md
+docs/archive/
 
 # Logs
 *.log

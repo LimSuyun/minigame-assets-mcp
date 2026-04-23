@@ -1,8 +1,9 @@
 /**
- * claude-vision.ts
+ * vision-qc.ts
  *
- * 스프라이트 품질 검증 — Gemini 2.5 Flash Vision 사용.
- * (이전: Anthropic Claude Haiku → 현재: Gemini 2.5 Flash로 대체)
+ * 스프라이트/에셋 품질 검증 — Gemini 2.5 Flash Vision 사용.
+ * 구 파일명 claude-vision.ts (Anthropic Claude Haiku → Gemini 2.5 Flash로 교체되면서
+ * 이름만 남아 있던 케이스)을 v2.1에서 provider-neutral 네이밍으로 정리.
  *
  * 검사 항목:
  *   1. 전신 가시성 — 머리부터 발끝까지 캐릭터가 완전히 보이는가 (잘림 없음)

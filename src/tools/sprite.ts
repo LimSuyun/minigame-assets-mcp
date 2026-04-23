@@ -23,7 +23,7 @@ import {
 } from "../utils/spritesheet-composer.js";
 import { handleApiError } from "../utils/errors.js";
 import { processFrameBase64, removeBackground, compositeOntoSolidBg, processFrameBase64AI, processFrameBase64Chroma } from "../utils/image-process.js";
-import { checkSpriteFrameQuality } from "../services/claude-vision.js";
+import { checkSpriteFrameQuality } from "../services/vision-qc.js";
 import { editImageOpenAI } from "../services/openai.js";
 import { refineImagePrompt } from "../services/gpt5-prompt.js";
 import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
