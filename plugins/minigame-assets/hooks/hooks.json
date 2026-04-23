@@ -1,0 +1,15 @@
+{
+  "description": "Auto-update hook — checks for new marketplace/plugin versions once every 6 hours on SessionStart. Updates apply on next Claude Code restart.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -42,11 +42,28 @@ export CONCEPT_MD_FILE="./CONCEPT.md"           # 선택
 
 슬래시 커맨드를 명시적으로 안 써도, "이 게임 에셋 만들어줘" 같은 요청이 오면 스킬이 자동 발동해 CONCEPT.md 를 먼저 생성한 뒤 생성 단계로 진행합니다.
 
-## 업데이트
+## 업데이트 (자동)
+
+한 번 설치해 두면 두 경로 모두 자동으로 최신을 따라갑니다.
+
+- **MCP 서버 코드** — `.mcp.json` 이 `npx -y minigame-assets-mcp@latest` 로 `@latest` 고정이므로, 새 npm 버전이 올라오면 **다음 Claude Code 재시작 때 자동 반영**됩니다.
+- **슬래시 커맨드 / 스킬 / manifest** — SessionStart 훅이 6시간에 한 번 백그라운드로 `claude plugin marketplace update` + `claude plugin update` 를 실행해 git 의 최신 커밋을 가져옵니다. 업데이트 자체는 조용히 적용되고, 다음 세션부터 새 버전이 활성화됩니다.
+
+### 수동 업데이트
+
+즉시 반영하고 싶으면:
 
 ```
 /plugin marketplace update minigame-assets-mcp
 /plugin update minigame-assets
+```
+
+### 자동 업데이트 끄기
+
+쉘 환경변수로 opt-out:
+
+```bash
+export MINIGAME_ASSETS_AUTO_UPDATE=0
 ```
 
 ## 문제 해결

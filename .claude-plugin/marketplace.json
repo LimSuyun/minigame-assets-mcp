@@ -1,9 +1,10 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "minigame-assets-mcp",
-  "description": "Marketplace for the minigame-assets plugin — an AI-powered game asset generation workflow built on the minigame-assets-mcp server.",
   "owner": {
     "name": "LimSuyun"
+  },
+  "metadata": {
+    "description": "Marketplace for the minigame-assets plugin — an AI-powered game asset generation workflow built on the minigame-assets-mcp server."
   },
   "plugins": [
     {
