@@ -17,9 +17,34 @@ version: 2.1.0
 3. 기획 문서 탐색: `README.md`, `GDD.md`, `GAME_DESIGN.md`, `game-design.md`, `design-doc.md`, `master-plan.md`, `docs/*.md`, `_bmad-output/**/*.md` 등
 4. `package.json` / 소스 코드에서 엔진 힌트 (Phaser, Unity, Cocos, Godot) 수집
 
-**컨셉이 이미 있으면**: 추가 질문 없이 바로 Step 2로 진행. 사용자가 `CONCEPT.md` 를 이미 작성해 뒀다면 그걸 신뢰하세요.
+**컨셉이 이미 있으면**: 추가 질문 없이 바로 Step 0.5로 진행. 사용자가 `CONCEPT.md` 를 이미 작성해 뒀다면 그걸 신뢰하세요.
 
 **없으면**: `asset_create_concept_md` 를 호출해 `CONCEPT.md` + `game-concept.json` 을 생성. 기획 문서에서 최대한 정보를 추출한 뒤 부족한 필드만 짧게 질문하세요. **절대 `asset_create_concept` (JSON-only 레거시) 는 쓰지 말 것** — `_md` 버전이 표준이며 `base_style_prompt`, `characters[]`, `weapons[]`, `backgrounds[]` 까지 구조화된 필드를 담습니다.
+
+## Step 0.5: 코드 기반 크기 스캔 (권장)
+
+게임 프로젝트에 **이미 코드가 있으면** 생성 전에 `asset_scan_display_sizes` 를 호출해 실제 런타임 표시 크기를 파악하세요. 예:
+
+```
+asset_scan_display_sizes
+  project_path: "."
+```
+
+감지 예시:
+- `add.sprite(x, y, 'hero').setDisplaySize(64, 64)` → `hero` 64×64 으로 표시됨 → 생성 크기 128×128 권장 (2× 헤드룸)
+- `.setScale(0.5)` → 1024 소스가 512 로 축소 표시됨 → 1024 생성 적합
+- Cocos `setContentSize`, Godot `Vector2(scale)` 도 지원
+
+결과의 `suggested_generation_size` 를 각 `asset_generate_*` 호출의 `size` 파라미터로 전달:
+
+```
+asset_generate_character_base
+  character_name: "hero"
+  size: "128x128"   ← 스캔 결과 사용
+  ...
+```
+
+코드가 없는 새 프로젝트이거나 크기 힌트가 없는 경우는 이 단계를 건너뛰고 기본값(1024×1024)으로 생성.
 
 ## Step 1~N: 표준 생성 순서
 

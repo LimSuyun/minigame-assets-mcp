@@ -237,6 +237,33 @@ EXECUTION-PLAN.md               ← 에셋 생성 실행 계획
 game-concept.json               ← 게임 컨셉 JSON (도구 내부 참조용)
 ```
 
+### 코드 기반 크기 조정 (display-size scanner)
+
+이미 게임 코드가 있는 프로젝트는 **실제 런타임 표시 크기**에 맞춰 생성할 수 있습니다.
+
+```
+asset_scan_display_sizes  project_path: "."
+```
+
+감지 패턴:
+- **Phaser**: `add.sprite(x, y, 'key').setDisplaySize(w, h)`, `.setScale(n)`
+- **Cocos Creator**: `.setContentSize(w, h)`
+- **Godot**: `$Sprite.scale = Vector2(n, n)`
+
+출력 예:
+```json
+{
+  "detections": [
+    { "asset_key": "hero",      "display_width": 64, "display_height": 64, "suggested_generation_size": 128 },
+    { "asset_key": "forest_bg", "display_width": 800, "display_height": 600, "suggested_generation_size": 1024 }
+  ]
+}
+```
+
+`suggested_generation_size` 를 `asset_generate_*` 도구의 `size` 파라미터로 전달하면 1024 기본값 대신 딱 맞는 크기로 생성 → 추가 용량 절감. 2× 헤드룸·multiple-of-64 스냅 룰 적용.
+
+---
+
 ### 출력 포맷 (PNG vs WebP)
 
 생성된 이미지는 **작업 디렉터리의 게임 엔진**을 자동 감지해 포맷이 결정됩니다.

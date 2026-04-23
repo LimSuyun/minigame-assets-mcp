@@ -13,6 +13,15 @@
   `cwd` 에서 게임 엔진(Phaser / Cocos Creator / Godot / Unity / unknown)을 감지해
   WebP 를 지원하는 엔진이면 WebP, 아니면 PNG 로 저장. Phaser 프로젝트 기준 캐릭터
   베이스 2MB → 250KB (**-87.7%**) 용량 감소 실측.
+- **시트 컴포저 WebP 지원** — `composeSpritSheet` 가 `format` 인자를 받고, 생략 시
+  엔진 감지 결과에 맞춰 자동 결정. Phaser atlas JSON / Cocos plist / Unity JSON 의
+  filename 참조가 실제 확장자에 자동 맞춰짐 (Cocos plist 의 frame key 확장자도 포함).
+- **코드 기반 display-size 스캐너 — 신규 도구 `asset_scan_display_sizes`** —
+  게임 소스 코드(Phaser `.ts/.js`, Cocos `.ts/.js`, Godot `.gd`, Unity `.cs`)를
+  스캔해 각 asset_key 의 실제 런타임 표시 크기를 추출하고 적정 생성 크기를 제안.
+  Phaser 의 `setDisplaySize(w, h)` · `setScale(n)`, Cocos 의 `setContentSize`,
+  Godot 의 `Vector2(scale)` 패턴 인식. `suggested_generation_size` 는 display ×
+  2 (안전 헤드룸) 후 multiple-of-64 snap · 1024 cap.
 - 환경변수 `ASSET_OUTPUT_FORMAT=png|webp` 로 전역 override, 각 도구 호출 시
   `options.format` 로 per-call override 가능.
 - PNG pass-through 최적화 — 입력이 이미 PNG 이고 PNG 으로 저장할 때 sharp 재인코딩
@@ -21,16 +30,24 @@
 ### 🔧 Changed
 
 - `asset_generate_character_base`, `asset_generate_action_sprite`(Gemini),
-  `asset_generate_sprite_sheet`, `asset_generate_character_weapon_sprites`
-  — 4개 도구의 최종 쓰기가 `writeOptimized()` 로 전환됨. asset registry 의
-  `file_path` / `file_name` / `mime_type` 이 실제 저장 포맷에 맞춰 자동 업데이트됨.
+  `asset_generate_sprite_sheet`(프레임 + 시트), `asset_generate_character_weapon_sprites`,
+  `asset_generate_screen_background`, `asset_generate_tileset`,
+  `asset_generate_interactive_objects`, `asset_generate_props_set`,
+  `asset_generate_app_logo`, `asset_generate_thumbnail`,
+  `asset_generate_character_portrait`, `asset_generate_character_card`,
+  `asset_generate_avatar_parts` — 핵심 대용량 도구의 최종 쓰기가
+  `writeOptimized()` 로 전환됨. asset registry 의 `file_path` / `file_name`
+  / `mime_type` 이 실제 저장 포맷에 맞춰 자동 업데이트됨.
+- 플러그인 스킬 `minigame-assets-workflow` 에 Step 0.5 (코드 크기 스캔) 추가 —
+  이미 게임 코드가 있는 프로젝트는 `asset_scan_display_sizes` → `suggested_generation_size`
+  를 `size` 파라미터로 전달하는 워크플로를 자동 유도.
 
 ### 📝 Notes
 
-- 나머지 이미지 생성 도구(logo, thumbnail, environment, characters-ext portraits,
-  ui, effects, tutorial, marketing 등)는 후속 커밋에서 동일 헬퍼로 전환 예정.
-- 스프라이트 시트 컴포저(`composeSpritSheet`) 는 현재 여전히 PNG 저장 — 컴포저
-  리팩토링 후 엔진 감지 반영.
+- 남은 중소 도구(ui, effects, tutorial, marketing-ext, font, edit — 22+
+  쓰기 사이트)는 후속 커밋에서 동일 `saveBase64Optimized()` 헬퍼로 일괄 전환 예정.
+  생성되는 파일이 상대적으로 작아서 개별 프로젝트 총 용량에 미치는 영향은 10~15%
+  수준으로 평가.
 
 ## [2.1.0] - 2026-04-23
 

@@ -36,6 +36,22 @@ export interface AssetReference {
   raw: string;
 }
 
+/** Display-size observation for a single asset key, collected from source code. */
+export interface DisplaySizeDetection {
+  asset_key: string;
+  display_width?: number;
+  display_height?: number;
+  scale_factor?: number;
+  /** "file:line" occurrences that contributed to this detection. */
+  sources: string[];
+  /**
+   * Suggested generation dimension — typically max(display_w, display_h) ×
+   * scale-safety-factor, rounded up to nearest power-of-2 or multiple of 64.
+   */
+  suggested_generation_size?: number;
+  note?: string;
+}
+
 export interface ProjectInfo {
   name: string;
   root_path: string;
@@ -504,4 +520,182 @@ export function getEngineRecommendations(
         notes: ["엔진을 감지할 수 없어 개별 PNG로 생성합니다"],
       };
   }
+}
+
+// ─── Display-size detection ───────────────────────────────────────────────────
+//
+// Scans source code for hints about how assets are actually rendered at
+// runtime: setDisplaySize / setScale / sizeDelta / scale Vector2 / etc.
+// Per-engine heuristics — the output is *guidance* for generation sizing,
+// not a guarantee. False positives and missing assets are expected.
+//
+// Generation-size recommendation rule:
+//   - If explicit display w/h known: round up to max(w, h) × 2 (safety
+//     headroom for upscale quality), then snap to nearest multiple of 64.
+//   - If only scale factor known (e.g. setScale(0.5)): treat as "source
+//     can be 2× smaller than assumed default 1024 baseline" — recommend
+//     ceil(1024 × scale × 2) up to multiple of 64, capped at 1024.
+//   - Default when no hints: no recommendation (leave upstream default).
+
+interface SizeRegexRule {
+  /** Regex with at least the key capture; width/height/scale captures as annotated. */
+  regex: RegExp;
+  keyGroup: number;
+  widthGroup?: number;
+  heightGroup?: number;
+  scaleGroup?: number;
+}
+
+const PHASER_SIZE_RULES: SizeRegexRule[] = [
+  // add.sprite(x, y, 'key').setDisplaySize(w, h)
+  {
+    regex: /\.(?:sprite|image)\s*\(\s*[^,]+,\s*[^,]+,\s*['"]([A-Za-z0-9_\-]+)['"]\s*\)[^;]*\.setDisplaySize\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/g,
+    keyGroup: 1,
+    widthGroup: 2,
+    heightGroup: 3,
+  },
+  // add.sprite(x, y, 'key').setScale(n)
+  {
+    regex: /\.(?:sprite|image)\s*\(\s*[^,]+,\s*[^,]+,\s*['"]([A-Za-z0-9_\-]+)['"]\s*\)[^;]*\.setScale\s*\(\s*([\d.]+)/g,
+    keyGroup: 1,
+    scaleGroup: 2,
+  },
+];
+
+const UNITY_SIZE_RULES: SizeRegexRule[] = [
+  // rectTransform.sizeDelta = new Vector2(64, 64)  (asset key unknown at this site — skip)
+  // GetComponent<SpriteRenderer>().sprite.name / .texture.name nearby — too loose, skip
+  // transform.localScale = new Vector3(0.5f, 0.5f, 1f) — only scale, no key
+];
+
+const COCOS_SIZE_RULES: SizeRegexRule[] = [
+  // node.setContentSize(new Size(64, 64))
+  {
+    regex: /['"]([A-Za-z0-9_\-]+)['"][^;]*\.setContentSize\s*\(\s*(?:new\s+[A-Za-z.]+\(\s*)?(\d+)\s*,\s*(\d+)/g,
+    keyGroup: 1,
+    widthGroup: 2,
+    heightGroup: 3,
+  },
+];
+
+const GODOT_SIZE_RULES: SizeRegexRule[] = [
+  // $Sprite.scale = Vector2(0.5, 0.5)  (key = "Sprite")
+  {
+    regex: /\$([A-Za-z0-9_\-]+)\s*\.\s*scale\s*=\s*Vector2\s*\(\s*([\d.]+)/g,
+    keyGroup: 1,
+    scaleGroup: 2,
+  },
+];
+
+function rulesForEngine(engine: GameEngine): SizeRegexRule[] {
+  switch (engine) {
+    case "phaser": return PHASER_SIZE_RULES;
+    case "unity": return UNITY_SIZE_RULES;
+    case "cocos_creator": return COCOS_SIZE_RULES;
+    case "godot": return GODOT_SIZE_RULES;
+    default: return [...PHASER_SIZE_RULES, ...COCOS_SIZE_RULES, ...GODOT_SIZE_RULES];
+  }
+}
+
+function roundUpToMultiple(value: number, multiple: number): number {
+  return Math.ceil(value / multiple) * multiple;
+}
+
+function suggestGenerationSize(
+  displayW?: number,
+  displayH?: number,
+  scale?: number
+): { size: number; note: string } {
+  if (displayW && displayH) {
+    const maxDim = Math.max(displayW, displayH);
+    // 2× headroom for crisp display + downscaling filter
+    const raw = maxDim * 2;
+    const snapped = Math.min(1024, roundUpToMultiple(raw, 64));
+    return {
+      size: snapped,
+      note: `Display ${displayW}×${displayH}. Generating at ${snapped}×${snapped} gives 2× headroom for sharp rendering and safe downscale.`,
+    };
+  }
+  if (scale && scale > 0 && scale <= 1) {
+    const raw = 1024 * scale * 2;
+    const snapped = Math.min(1024, Math.max(128, roundUpToMultiple(raw, 64)));
+    return {
+      size: snapped,
+      note: `setScale(${scale}) — rendered at ${Math.round(1024 * scale)}px from a 1024 source. Generating at ${snapped}×${snapped} matches with 2× headroom.`,
+    };
+  }
+  return {
+    size: 1024,
+    note: "No display-size hint found. Default 1024×1024.",
+  };
+}
+
+export function scanDisplaySizes(
+  rootPath: string,
+  engine: GameEngine,
+  allFiles: string[]
+): DisplaySizeDetection[] {
+  const extensions: Record<GameEngine, string[]> = {
+    cocos_creator: [".ts", ".js"],
+    unity: [".cs"],
+    phaser: [".ts", ".js", ".mjs"],
+    godot: [".gd", ".cs"],
+    unknown: [".ts", ".js", ".cs", ".gd"],
+  };
+  const targetExts = extensions[engine];
+  const sourceFiles = allFiles.filter((f) => targetExts.some((ext) => f.endsWith(ext)));
+  const rules = rulesForEngine(engine);
+
+  // Merge multiple observations per key
+  const byKey = new Map<string, DisplaySizeDetection>();
+
+  for (const filePath of sourceFiles.slice(0, 100)) {
+    const content = readFileSafe(filePath);
+    if (!content) continue;
+
+    for (const rule of rules) {
+      rule.regex.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = rule.regex.exec(content)) !== null) {
+        const key = match[rule.keyGroup];
+        if (!key) continue;
+
+        const before = content.slice(0, match.index);
+        const line = before.split("\n").length;
+        const source = `${path.relative(rootPath, filePath)}:${line}`;
+
+        let entry = byKey.get(key);
+        if (!entry) {
+          entry = { asset_key: key, sources: [] };
+          byKey.set(key, entry);
+        }
+
+        if (rule.widthGroup && rule.heightGroup) {
+          const w = parseInt(match[rule.widthGroup], 10);
+          const h = parseInt(match[rule.heightGroup], 10);
+          if (!entry.display_width || w > entry.display_width) entry.display_width = w;
+          if (!entry.display_height || h > entry.display_height) entry.display_height = h;
+        }
+        if (rule.scaleGroup) {
+          const s = parseFloat(match[rule.scaleGroup]);
+          if (!entry.scale_factor || s > entry.scale_factor) entry.scale_factor = s;
+        }
+        if (!entry.sources.includes(source)) entry.sources.push(source);
+      }
+    }
+  }
+
+  // Fill in suggestions
+  const out = Array.from(byKey.values());
+  for (const entry of out) {
+    const { size, note } = suggestGenerationSize(
+      entry.display_width,
+      entry.display_height,
+      entry.scale_factor
+    );
+    entry.suggested_generation_size = size;
+    entry.note = note;
+  }
+
+  return out.sort((a, b) => a.asset_key.localeCompare(b.asset_key));
 }

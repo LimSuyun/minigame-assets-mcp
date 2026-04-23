@@ -7,6 +7,7 @@ import {
   detectEngine,
   detectAssetDirectories,
   scanAssetReferences,
+  scanDisplaySizes,
   getEngineRecommendations,
 } from "../utils/project-scanner.js";
 import type { GameEngine } from "../utils/project-scanner.js";
@@ -746,6 +747,67 @@ Returns:
       return {
         content: [{ type: "text" as const, text: resultText }],
         structuredContent: planOutput,
+      };
+    }
+  );
+
+  // ── 4. 코드 기반 display-size 스캔 ───────────────────────────────────────────
+  server.registerTool(
+    "asset_scan_display_sizes",
+    {
+      title: "Scan Game Code for Actual Display Sizes",
+      description: `Scans game source code to extract actual runtime display dimensions for each asset key, so image generation can match the sizes the game code actually renders at.
+
+Recognized patterns:
+  - Phaser: \`add.sprite(x, y, 'key').setDisplaySize(w, h)\`, \`.setScale(n)\`
+  - Cocos Creator: \`.setContentSize(w, h)\` near a sprite frame key
+  - Godot: \`$Sprite.scale = Vector2(n, n)\`
+  - Unity: (pattern set under development)
+
+Per-key output includes: detected width/height, scale factor, source lines, and a suggested generation size (2× display for sharp rendering, snapped to multiple of 64, capped at 1024).
+
+Typical workflow:
+  1. Run asset_scan_display_sizes → review detected sizes
+  2. Pass \`size: "<suggested_generation_size>x<suggested_generation_size>"\` to asset_generate_* tools
+  3. Or set \`maxDim\` during writeOptimized for automatic downscale to display size
+
+Args:
+  - project_path (string): Path to the game project root
+
+Returns:
+  Array of detections sorted by asset_key, plus a summary of engine and total asset keys found.`,
+      inputSchema: z.object({
+        project_path: z.string().min(1).describe("Path to the game project root"),
+      }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (params) => {
+      const rootPath = path.resolve(params.project_path);
+      if (!fs.existsSync(rootPath)) {
+        return {
+          content: [{ type: "text" as const, text: `Error: Directory not found: ${rootPath}` }],
+          isError: true,
+        };
+      }
+
+      const allFiles = collectFiles(rootPath, 6);
+      const engineResult = detectEngine(rootPath, allFiles);
+      const detections = scanDisplaySizes(rootPath, engineResult.engine, allFiles);
+
+      const output = {
+        project_path: rootPath,
+        engine: engineResult.engine,
+        confidence: engineResult.confidence,
+        total_detections: detections.length,
+        detections,
+        usage_hint: detections.length > 0
+          ? `Pass the suggested_generation_size to each asset_generate_* call for its matching asset_key. For example: { asset_key: "${detections[0].asset_key}", size: "${detections[0].suggested_generation_size}x${detections[0].suggested_generation_size}" }.`
+          : "No display-size hints found. Either the code does not set explicit display sizes, or the patterns did not match this project's style. Generation will use defaults.",
+      };
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
+        structuredContent: output,
       };
     }
   );
