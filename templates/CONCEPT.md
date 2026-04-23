@@ -35,45 +35,68 @@
 
 ## 에셋 목록
 
+> **`layer` 컬럼 안내**: 해당 에셋이 런타임에 배치될 Phaser Scene/Layer. 자세한 구조는 `docs/layer-system.md` 참조.
+> - **Scene 레벨**(depth 체계 밖): `Scene:Loading`, `Scene:Lobby` 등
+> - **Layer 0~5**: 단일 GameScene 내부 depth. 0(배경) / 1(타일) / 2(유닛) / 3(투사체) / 4(이펙트) / 5(UI)
+
 ### 캐릭터 (Characters)
 
-> 스프라이트 시트로 생성됩니다.
+> 스프라이트 시트로 생성됩니다. `타입`은 `asset_generate_character_base`의 **`role`** 파라미터로 전달되어 역할별 실루엣·컬러·디테일 가이던스가 자동 주입됩니다.
 
-| ID | 타입 | 이름 | 설명 | 필요 액션 |
-|----|------|------|------|---------|
-| 식별자 | player/enemy/boss/npc | 이름 | 외형 설명 (영문 프롬프트용) | idle, walk, attack, death 등 |
+| ID | 타입 (role) | 이름 | 설명 | 필요 액션 | layer |
+|----|------|------|------|---------|-------|
+| 식별자 | player / enemy / monster / npc | 이름 | 외형 설명 (영문 프롬프트용) | idle, walk, attack, death 등 | `2` (유닛) |
+
+> 💡 장비 착용 버전 스프라이트가 필요한 경우 `asset_generate_character_equipped`로 베이스 + 무기/방어구를 합성한 후 sprite_sheet에 전달하세요. 장비 착용본도 `layer: 2`.
 
 ### 무기 / 투사체 (Weapons / Projectiles)
 
-> 단일 프레임 아이콘으로 생성됩니다. (투명 배경)
+> 단일 프레임 아이콘으로 생성됩니다. (투명 배경). 런타임 용도에 따라 layer가 달라집니다 — 발사되면 Layer 3, 인벤토리 아이콘이면 Layer 5.
 
-| ID | 이름 | 설명 |
-|----|------|------|
-| 식별자 | 이름 | 외형 설명 (영문 프롬프트용) |
+| ID | 이름 | 설명 | 용도 | layer |
+|----|------|------|------|-------|
+| 식별자 | 이름 | 외형 설명 (영문 프롬프트용) | projectile / inventory | `3` 또는 `5` |
 
 ### 배경 (Backgrounds)
 
-> 전체 화면 배경으로 생성됩니다.
+> 전체 화면 배경으로 생성됩니다. static은 단일 depth, parallax는 sub-depth 0.0/0.1/0.2.
 
-| ID | 이름 | 설명 |
-|----|------|------|
-| 식별자 | 이름 | 배경 설명 (영문 프롬프트용) |
+| ID | 이름 | 설명 | style | layer |
+|----|------|------|-------|-------|
+| 식별자 | 이름 | 배경 설명 (영문 프롬프트용) | static / parallax | `0` (배경) |
+
+### 화면 (Screens) — Scene 레벨
+
+> **Scene 단위** 풀스크린 배경. depth 체계 밖.
+
+| ID | 이름 | 설명 | 생성 도구 | scene |
+|----|------|------|---------|-------|
+| loading | 로딩 화면 | 하단 20% 프로그레스 영역 | `asset_generate_loading_screen` | `Scene:Loading` |
+| lobby | 로비/메인 메뉴 | menu_side 영역 UI 자리 | `asset_generate_lobby_screen` | `Scene:Lobby` |
 
 ### UI 요소 (UI Elements)
 
-| ID | 이름 | 설명 |
-|----|------|------|
-| 식별자 | 이름 | UI 요소 설명 |
+| ID | 이름 | 설명 | layer |
+|----|------|------|-------|
+| 식별자 | 이름 | UI 요소 설명 | `5` (UI) 또는 UIScene 분리 |
 
 ### 이펙트 (Effects)
 
 > 스프라이트 시트로 생성됩니다.
 
-| ID | 이름 | 프레임 수 | 설명 |
-|----|------|---------|------|
-| 식별자 | 이름 | N | 이펙트 설명 |
+| ID | 이름 | 프레임 수 | 설명 | layer |
+|----|------|---------|------|-------|
+| 식별자 | 이름 | N | 이펙트 설명 | `4` (이펙트) |
+
+### 타일 (Tiles)
+
+| ID | 이름 | 설명 | layer |
+|----|------|------|-------|
+| 식별자 | 이름 | 타일 설명 | `1` (맵/타일) |
 
 ### 오디오 (Audio)
+
+> Scene/Layer 체계와 무관.
 
 | ID | 종류 | 설명 |
 |----|------|------|
@@ -84,14 +107,14 @@
 ## 생성 가이드
 
 ### 캐릭터 생성 순서
-1. `asset_generate_character_base` — 정면 베이스 생성 (gpt-image-1, 투명 배경)
-2. `asset_generate_sprite_sheet` — 각 액션별 프레임 생성 (Gemini 편집)
+1. `asset_generate_character_base` — 정면 베이스 생성 (gpt-image-2, 마젠타 크로마키 → 투명)
+2. `asset_generate_sprite_sheet` — 각 액션별 프레임 생성 (gpt-image-2 edit, chroma_key_bg: magenta 권장)
 
 ### 무기/투사체 생성
-1. `asset_generate_weapons` — 투명 배경 아이콘 생성 (gpt-image-1)
+1. `asset_generate_weapons` — 투명 배경 아이콘 생성 (gpt-image-1, 네이티브 투명)
 
 ### 배경 생성
-1. `asset_generate_image_gemini` — asset_type: background
+1. `asset_generate_screen_background` — static: gpt-image-2 (기본) / parallax: provider: "gemini" 권장 (투명 레이어)
 
 ### 에셋 검증
 1. `asset_validate` — 네이밍 규칙 + 파일 스펙 검사

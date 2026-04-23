@@ -2,16 +2,66 @@
 
 ---
 
-## 레이어 구조
+## Screen vs Layer (혼동 방지)
+
+이 두 개념은 **다른 축**입니다:
+
+- **Screen (Phaser Scene)** — 전환 단위. 한 번에 하나(또는 stacked)가 활성. 예: `LoadingScene`, `LobbyScene`, `GameScene`, `UIScene`
+- **Layer (setDepth 값)** — **하나의 Scene 내부의** 렌더링 순서. 0(뒤) ↔ 5(앞)
+
+| 에셋 종류 | 소속 | 설명 |
+|---|---|---|
+| 로딩 화면 아트 | **LoadingScene의 풀스크린 배경** (Scene 레벨) | depth 체계 밖 — Scene 자체가 다른 씬들과 전환됨 |
+| 로비/메뉴 아트 | **LobbyScene의 풀스크린 배경** (Scene 레벨) | 동일 |
+| 게임 배경 | GameScene의 Layer 0 (배경) | GameScene 내부 depth 0 |
+| 유닛 스프라이트 | GameScene의 Layer 2 (유닛) | GameScene 내부 depth 2 |
+| UI 요소 | UIScene 전체 (또는 GameScene의 Layer 5) | 별도 씬이면 씬 자체가 최상단, 같은 씬이면 depth 5 |
+
+예시 흐름:
+```
+앱 기동 → LoadingScene (loading_screen.png 풀스크린 배경 + 프로그레스 바)
+       ↓ (로드 완료)
+       → LobbyScene (lobby_screen.png 풀스크린 + 메뉴 UI)
+       ↓ ("게임 시작" 버튼)
+       → GameScene (Layer 0~4) + UIScene stacked (Layer 5 역할)
+```
+
+---
+
+## GameScene 내부 레이어 구조
 
 | depth | 이름 | 포함 오브젝트 | 설명 |
 |-------|------|------------|------|
-| 5 | UI | HP바, 웨이브 표시, 버튼, 패널 | 항상 최상단 |
+| 5 | UI | HP바, 웨이브 표시, 버튼, 패널 | 항상 최상단 (UIScene 분리 권장) |
 | 4 | 이펙트 | 폭발, 히트 스파크, 머즐 플래시 | 유닛보다 앞 |
 | 3 | 투사체 | 총알, 미사일, 레이저 | |
-| 2 | 유닛 | 적, 포탑, 방어 구조물 | |
+| 2 | 유닛 | 적, 포탑, 방어 구조물, 플레이어 캐릭터 | |
 | 1 | 맵 / 타일 | 타일맵, 경로 표시 | |
 | 0 | 배경 | 패럴렉스 배경 레이어 | 항상 최하단 |
+
+---
+
+## MCP 도구별 Layer / Scene 매핑
+
+각 `asset_generate_*` 도구가 어느 Scene/Layer에 쓰이도록 설계된 에셋을 생성하는지:
+
+| MCP 도구 | 소속 | 비고 |
+|---|---|---|
+| `asset_generate_loading_screen` | **LoadingScene** (풀스크린 배경) | Scene 레벨 — depth 체계 밖 |
+| `asset_generate_lobby_screen` | **LobbyScene** (풀스크린 배경) | Scene 레벨 — `menu_side` 영역에 UI 올림 |
+| `asset_generate_screen_background` | GameScene **Layer 0** | `style: parallax` 시 0.0/0.1/0.2 sub-depth |
+| `asset_generate_character_base` | GameScene **Layer 2** (유닛) | 플레이어·적·NPC·몬스터 |
+| `asset_generate_character_equipped` | GameScene **Layer 2** (유닛) | 장비 착용 버전, base와 동일 레이어 |
+| `asset_generate_sprite_sheet` | GameScene **Layer 2** (유닛 애니메이션) | |
+| `asset_generate_action_sprite` | GameScene **Layer 2** | 단일 액션 프레임 |
+| `asset_generate_weapons` | **Layer 3** (투사체) 또는 **Layer 5** (UI 인벤토리) | 용도에 따라 배치 |
+| `asset_generate_effect_sheet` | GameScene **Layer 4** (이펙트) | 폭발·충격파 등 |
+| `asset_generate_tileset` | GameScene **Layer 1** (맵/타일) | 타일맵용 |
+| `asset_generate_ui_*` / `asset_generate_hud_set` | **UIScene** 또는 GameScene **Layer 5** | UI 씬 분리 권장 |
+| `asset_generate_app_logo` | Scene 외 (앱 아이콘·마케팅) | |
+| `asset_generate_thumbnail` | Scene 외 (스토어 썸네일) | |
+
+---
 
 ---
 

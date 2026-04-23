@@ -32,32 +32,73 @@
 
 `asset_generate_character_base` 도구로 각 캐릭터의 정면 베이스 이미지를 생성합니다.
 
-- AI: OpenAI gpt-image-1
-- 투명 배경 PNG
+- AI: OpenAI **gpt-image-2** (기본) — 마젠타 크로마키 자동 적용 → 투명 PNG
+- 대안: `model: "gpt-image-1"` 명시 시 네이티브 투명 (더 빠르나 디테일 낮음)
+- **`role` 파라미터 활용**: `player` / `enemy` / `monster` / `npc` / `generic` — 역할별 실루엣·컬러·디테일 가이던스 자동 주입
 - CONCEPT.md의 base_style_prompt 활용
+- 짧은 한국어/간단한 설명이면 `refine_prompt: true`로 GPT-5.4-nano가 상세 영문 확장
 
-## 4단계: 스프라이트 시트 생성
+## 3.5단계 (선택): 장비 결합 베이스 생성
 
-`asset_generate_sprite_sheet` 도구로 각 캐릭터의 액션 스프라이트를 생성합니다.
+플레이어가 특정 장비(무기·방어구·액세서리)를 착용한 상태의 스프라이트 시트가 필요한 경우:
 
-- AI: Gemini Imagen (캐릭터 베이스 이미지 편집)
-- 기본 액션: idle, walk, run, attack, hurt, die
-- 엔진별 Atlas JSON 자동 생성
+`asset_generate_character_equipped` 도구로 **장비 착용 베이스**를 생성합니다.
 
-## 5단계: 무기 아이콘 생성
+- 입력: 3단계 베이스 PNG + 4단계(아래)의 장비 아이콘 PNG들 (최대 4개)
+- gpt-image-2 edit API에 다중 레퍼런스로 전달 → 장비 착용한 새 베이스 생성
+- 결과물은 투명 PNG (마젠타 크로마키 + residue 패스 자동)
+- 5단계 스프라이트 시트에 그대로 재사용 가능: `base_character_path: hero_equipped_base.png`
+
+예시 흐름:
+```
+3단계: asset_generate_character_base → hero_base.png
+4단계: asset_generate_weapons → sword.png, shield.png
+3.5단계: asset_generate_character_equipped(
+    base_character_path=hero_base.png,
+    equipment_image_paths=[sword.png, shield.png],
+    equipment_description="wielding sword in right hand, shield in left hand"
+) → hero_equipped_base.png
+5단계: asset_generate_sprite_sheet(base_character_path=hero_equipped_base.png)
+```
+
+## 4단계: 무기 아이콘 생성
 
 `asset_generate_weapons` 도구로 무기 아이콘을 일괄 생성합니다.
 
-- AI: OpenAI gpt-image-1
+- AI: OpenAI gpt-image-1 (유지 — 투명 배경 네이티브로 빠른 경로)
 - 투명 배경 PNG
 - CONCEPT.md의 무기 목록 자동 참조
 
-## 6단계: 배경 이미지 생성
+## 5단계: 스프라이트 시트 생성
 
-`asset_generate_image_gemini` 도구로 배경 이미지를 생성합니다.
+`asset_generate_sprite_sheet` 도구로 각 캐릭터의 액션 스프라이트를 생성합니다.
 
-- AI: Gemini Imagen 4
+- AI: OpenAI **gpt-image-2 edit** (기본) — 캐릭터 베이스 이미지 편집으로 포즈 변환
+- `chroma_key_bg: "magenta"` 자동 권장 (외곽선 내부 포켓 residue 제거)
+- 기본 액션: idle, walk, run, attack, hurt, die
+- **레이아웃 기본: 1행 가로 스트립** (`sheet_cols` 미지정 시 cols = frames.length). 2행 그리드 원하면 `sheet_cols: Math.ceil(N/2)` 지정
+- 엔진별 Atlas JSON 자동 생성
+- ⏱️ 프레임당 ~30-60초 (Gemini 대비 ~2.7× 느리지만 스타일 일관성 우수)
+
+## 6단계: 배경 + 화면 생성
+
+### 게임 씬 배경
+`asset_generate_screen_background`
+- AI: OpenAI **gpt-image-2** (기본, static 배경) — 디테일·텍스트 품질 우수, 불투명 PNG
+- parallax 모드 (far/mid/near 레이어): mid/near는 투명 필요 → `provider: "gemini"` 권장
 - 16:9 비율 권장
+
+### 로딩 화면
+`asset_generate_loading_screen`
+- AI: gpt-image-2 (불투명 풀스크린)
+- 하단 20-25% 시각적으로 조용하게 생성 (프로그레스 바 영역)
+- 히어로 이미지를 `hero_image_path`로 전달 시 그 캐릭터 기반 합성
+
+### 로비/메인 메뉴 화면
+`asset_generate_lobby_screen`
+- AI: gpt-image-2 (불투명 풀스크린)
+- `menu_side: left/right/center/bottom`으로 UI가 놓일 영역 지정 → 해당 영역 조용하게 생성
+- 히어로 이미지 쇼케이스 (선택)
 
 ## 7단계: 마케팅 에셋 생성 (선택)
 
@@ -71,10 +112,27 @@
 `asset_plan_thumbnail` → `asset_generate_thumbnail` 순서로 진행
 
 1. `asset_plan_thumbnail`로 구성 계획 및 프롬프트 작성 (생성 없음)
-2. 계획 확인 후 `asset_generate_thumbnail`로 실제 생성
+2. 계획 확인 후 `asset_generate_thumbnail`로 실제 생성 (gpt-image-2 edit, 캐릭터·배경 레퍼런스 다중 합성)
 
-## 8단계: 검증
+## 8단계: 품질 검토 + 검증
 
+### 품질 검토 (권장 — 대량 생성 후)
+`asset_review` 도구로 생성된 에셋 품질 종합 검토:
+
+```
+asset_review
+  target_path: "generated-assets/sprites/hero"
+  mode: "standard"   # quick / standard / deep
+  character_hint: "chibi boy adventurer with red tunic"
+  output_report_path: "./reviews/hero_review.md"
+```
+
+체크 항목:
+- **구조**: 해상도, 파일 크기, 알파 채널 (투명 기대 에셋)
+- **크로마 잔류**: 마젠타 #FF00FF 잔류 픽셀 정량 측정 + 최대 클러스터 크기
+- **비주얼 AI** (standard/deep): 전신 가시성, 배경 클린, 캐릭터 해부학, 단일 캐릭터 (Gemini Vision)
+
+### 스펙 검증 + Atlas 생성
 ```
 asset_validate        ← 네이밍 규칙 + 파일 스펙 검사
 asset_list_missing    ← 누락 에셋 확인
@@ -87,13 +145,18 @@ asset_generate_atlas_json  ← 스프라이트 Atlas JSON 생성
 |------|------|----|
 | 컨셉 | `asset_create_concept_md` | — |
 | 실행 계획 | `asset_generate_execution_plan` | — |
-| 캐릭터 베이스 | `asset_generate_character_base` | gpt-image-1 (투명 배경) |
-| 스프라이트 | `asset_generate_sprite_sheet` | Gemini Imagen |
-| 무기 | `asset_generate_weapons` | gpt-image-1 (투명 배경) |
-| 배경 | `asset_generate_image_gemini` | Gemini Imagen 4 |
+| 캐릭터 베이스 | `asset_generate_character_base` (role 지원) | **gpt-image-2** (마젠타 크로마키 → 투명) |
+| 장비 결합 베이스 | `asset_generate_character_equipped` | **gpt-image-2 edit** (다중 레퍼런스 합성) |
+| 스프라이트 | `asset_generate_sprite_sheet` (1행 기본) | **gpt-image-2 edit** (마젠타 크로마키) |
+| 무기 | `asset_generate_weapons` | gpt-image-1 (투명 배경, 네이티브) |
+| 배경 | `asset_generate_screen_background` | **gpt-image-2** (불투명, static) / Gemini (parallax 투명 레이어) |
+| 로딩 화면 | `asset_generate_loading_screen` | **gpt-image-2** (히어로 레퍼런스 지원) |
+| 로비 화면 | `asset_generate_lobby_screen` | **gpt-image-2** (menu_side 지정) |
 | 로고 | `asset_generate_app_logo` | gpt-image-1 / Gemini |
 | 썸네일 계획 | `asset_plan_thumbnail` | — |
-| 썸네일 생성 | `asset_generate_thumbnail` | gpt-image-1 |
+| 썸네일 생성 | `asset_generate_thumbnail` | **gpt-image-2 edit** (캐릭터·배경 이미지 레퍼런스 합성) |
 | 음악 | `asset_generate_music_local` | 로컬 AudioCraft |
 | 영상 | `asset_generate_video_gemini` | Gemini Veo |
+| **품질 검토** | `asset_review` | Gemini Vision (비주얼) + 비 AI (구조·크로마) |
 | 검증 | `asset_validate`, `asset_list_missing` | — |
+| 프롬프트 확장 | 각 이미지 도구의 `refine_prompt: true` | **GPT-5.4-nano** (짧은 입력 상세화) |
