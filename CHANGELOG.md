@@ -7,6 +7,58 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-23
+
+### ✨ Added
+
+- **비용·성능 텔레메트리 전체 도구로 확장** — v2.0에서 sprite/ui에만 기록되던
+  `latency_ms` / `est_cost_usd` / `cost_formula` / `model` 필드를 모든 이미지·스프라이트·
+  UI·환경·이펙트·캐릭터 확장·마케팅·튜토리얼 도구(30+ 호출 지점)의 registry metadata에
+  기록. 합성 도구(`asset_generate_tileset`, `asset_generate_effect_sheet`)는 단가를
+  타일/프레임 수만큼 곱해 집계하고 formula에 내역 표기.
+- **HTTP 모드 stateful 세션** — `/mcp`가 initialize 요청에 응답할 때 `mcp-session-id`를
+  반환하고, 후속 요청은 같은 세션·같은 `McpServer` 인스턴스로 라우팅됨. `GET /mcp`(SSE
+  재개), `DELETE /mcp`(세션 종료), `GET /health`는 `active_sessions` 반환.
+- README·PROCESS.md에 v2.0+ 도구 레퍼런스 20여 종 추가 (환경·UI·이펙트·마케팅 확장·
+  canon·계획 섹션 신설).
+- `scripts/experiments/README.md` — 실험 스크립트 용도 표.
+
+### 🔧 Changed
+
+- **MCP 서버 버전이 런타임에 `package.json`에서 로드** — 기존 `"1.0.0"` 하드코딩 제거.
+  stdio 배너와 `/health` 응답 모두 실제 패키지 버전 반영.
+- **Gemini 서비스가 실제 사용 모델을 반환** — `generateImageGemini` / `generateVideoGemini`
+  반환 타입에 `model` 추가. 레지스트리 `provider`가 `gemini-imagen-4.0-generate-001` /
+  `gemini-veo-3.0-generate-001` 처럼 정확해지고 `metadata.model`에 모델 ID 보존.
+- `asset_generate_image_openai` description — 실제 기본 모델(`gpt-image-1-mini`)과 선택
+  정책(저비용 vs 고품질 gpt-image-2) 문서화.
+- `asset_generate_image_gemini` title/description — "Imagen 3" → "Imagen 4".
+- `asset_batch_generate_images` / `asset_generate_image` auto-provider 규칙 — v2.0 실제
+  동작에 맞춰 "모든 타입 기본 OpenAI" 문서화 (기존 description의 `background → Gemini`
+  오기 제거).
+- `src/services/claude-vision.ts` → **`src/services/vision-qc.ts`** 리네임. 파일명이
+  실제 구현(Gemini 2.5 Flash Vision)과 불일치하던 점 해소. import 경로 일괄 업데이트.
+- `scripts/` 최상위 실험 스크립트 7개를 `scripts/experiments/`로 이동. npm publish·CI
+  양쪽에서 유틸 코드와 명확히 구분.
+
+### 🐛 Fixed
+
+- **stdio 모드 stdout 오염** — `src/tools/font.ts`의 `console.log` 4건을 `console.error`로
+  교체. `asset_convert_font_to_bitmap` 실행 시 MCP JSON-RPC 프레임이 손상되던 회귀
+  (v1.0.1 수정의 재발) 해결.
+
+### 📦 Dependencies
+
+- `@anthropic-ai/sdk` 제거 — 실사용 0건. `npx` 콜드스타트 / 설치 용량 감소.
+
+### 📚 Docs
+
+- `README.md` 비용·성능 추적 섹션, HTTP 모드 섹션 신설.
+- `PROCESS.md` 디렉토리 구조·워크플로우·도구 테이블·AI 모델 분담·크로마키 전략을
+  v2.1 현실에 맞춰 갱신.
+
+---
+
 ## [2.0.0] - 2026-04-23
 
 ### 💥 BREAKING CHANGES

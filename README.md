@@ -179,19 +179,28 @@ game-concept.json               ← 게임 컨셉 JSON (도구 내부 참조용)
 | 도구 | 설명 |
 |------|------|
 | `asset_generate_image` | 에셋 타입 기반 자동 AI 선택 |
-| `asset_generate_image_openai` | OpenAI gpt-image-2 / gpt-image-1 계열 |
-| `asset_generate_image_gemini` | Gemini Imagen 4 |
+| `asset_generate_image_openai` | OpenAI gpt-image-2 / gpt-image-1 계열 (기본 gpt-image-1-mini 저비용) |
+| `asset_generate_image_gemini` | Gemini Imagen 4 (generate / fast / ultra) |
+| `asset_generate_image_responses` | OpenAI Responses API (텍스트 모델 + 이미지 조합) |
 | `asset_batch_generate_images` | 최대 10개 일괄 생성 |
+| `asset_compare_models` | 여러 OpenAI 모델 A/B 비교 결과물 |
+| `asset_generate_with_reference` | 레퍼런스 이미지 기반 생성 |
 
-### 스프라이트
+### 캐릭터 & 스프라이트
 
 | 도구 | 설명 |
 |------|------|
 | `asset_generate_character_base` | 정면 캐릭터 베이스 (gpt-image-2, 마젠타 크로마키 → 투명). **role**: player/enemy/monster/npc/generic |
-| `asset_generate_character_equipped` | 베이스 + 장비(무기/방어구/악세서리) 다중 레퍼런스 합성 → 새 투명 PNG 베이스 |
-| `asset_generate_sprite_sheet` | 캐릭터 액션 스프라이트 시트 (gpt-image-2 edit). **기본: 1행 가로 스트립** (`sheet_cols`로 grid 전환 가능) |
-| `asset_generate_action_sprite` | 단일 액션 프레임 생성 (Gemini edit) |
-| `asset_generate_weapons` | 무기 아이콘 일괄 생성 (gpt-image-1, 투명 배경) |
+| `asset_generate_character_equipped` | 베이스 + 장비 다중 레퍼런스 합성 → 새 투명 PNG 베이스 |
+| `asset_generate_character_views` | 정면·측면·후면 등 멀티뷰 세트 생성 |
+| `asset_generate_character_pose` | 단일 포즈 이미지 생성 |
+| `asset_generate_character_portrait` | 초상화 3사이즈 (full / bust / thumb) |
+| `asset_generate_character_card` | 카드 UI 합성 (Sharp, AI 미사용) |
+| `asset_generate_sprite_sheet` | 액션 스프라이트 시트 (gpt-image-2 edit). **기본: 1행 가로 스트립** (`sheet_cols`로 grid 전환) |
+| `asset_generate_action_sprite` | 단일 액션 프레임 (Gemini edit) |
+| `asset_generate_character_weapon_sprites` | 무기 장착 상태 스프라이트 일괄 |
+| `asset_generate_avatar_parts` | 아바타 커스터마이즈 파츠 (헤어·의상 등) |
+| `asset_generate_weapons` | 무기 아이콘 일괄 (gpt-image-1, 투명 배경) |
 
 ### 편집
 
@@ -211,32 +220,93 @@ game-concept.json               ← 게임 컨셉 JSON (도구 내부 참조용)
 | `asset_generate_lobby_screen` | 로비/메인 메뉴 화면 (gpt-image-2, menu_side: left/right/center/bottom으로 UI 영역 지정) |
 | `asset_generate_screen_background` | 게임 씬 배경 (static/parallax, gpt-image-2 기본) |
 
+### 환경 & 맵
+
+| 도구 | 설명 |
+|------|------|
+| `asset_generate_parallax_set` | 다층 배경 (레이어별 speed factor) |
+| `asset_generate_tileset` | 16타일 시트 + 설정 JSON (seamless tileable) |
+| `asset_generate_props_set` | 맵 오브젝트/소품 세트 (투명 배경) |
+| `asset_generate_interactive_objects` | 상태별 스프라이트 (open/closed 등) + Atlas |
+
+### UI 세트
+
+| 도구 | 설명 |
+|------|------|
+| `asset_generate_hud_set` | 게임 내 HUD 일괄 (체력바·미니맵 등) |
+| `asset_generate_button_set` | 버튼 세트 (primary/secondary 등) |
+| `asset_generate_popup_set` | 팝업·다이얼로그 프레임 |
+| `asset_generate_icon_set` | 아이콘 세트 |
+| `asset_generate_ui_structural` | 구조적 UI 요소 |
+| `asset_generate_ui_decorative` | 장식용 UI 요소 |
+
+### 이펙트 & 튜토리얼
+
+| 도구 | 설명 |
+|------|------|
+| `asset_generate_effect_sheet` | 이펙트 애니메이션 시트 + Atlas JSON |
+| `asset_generate_status_effect_icons` | 상태이상 아이콘 세트 |
+| `asset_generate_floating_text` | 플로팅 텍스트 스타일 PNG (Sharp SVG, AI 미사용) |
+| `asset_generate_tutorial_overlays` | 스포트라이트·화살표 오버레이 |
+| `asset_generate_guide_npc` | 가이드 NPC 표정 세트 (idle/happy/thinking 등) |
+
 ### 마케팅 에셋
 
 | 도구 | 설명 |
 |------|------|
 | `asset_generate_app_logo` | 앱 로고 600×600px PNG |
 | `asset_plan_thumbnail` | 썸네일 구성 계획 + 프롬프트 작성 (생성 없음) |
-| `asset_generate_thumbnail` | 썸네일 1932×828px PNG (gpt-image-2 edit, 캐릭터·배경 레퍼런스 다중 합성) |
+| `asset_generate_thumbnail` | 썸네일 1932×828px (gpt-image-2 edit, 캐릭터·배경 레퍼런스 다중 합성) |
+| `asset_generate_store_banner` | 플랫폼별 배너 (Google Play / App Store) |
+| `asset_generate_store_screenshots` | 씬별 스크린샷 + 플랫폼별 크기 + 캡션 오버레이 |
+| `asset_generate_social_media_pack` | Instagram/Twitter/Facebook 게시물 세트 |
+| `asset_generate_style_reference_sheet` | 스타일 레퍼런스 시트 (아트 가이드용) |
 
 ### 음악 · 영상
 
 | 도구 | 설명 |
 |------|------|
 | `asset_generate_music_local` | 로컬 AudioCraft/MusicGen 또는 Gradio |
-| `asset_generate_video_gemini` | Gemini Veo 2/3 (5~8초) |
+| `asset_generate_bgm` | 카테고리별 BGM 일괄 |
+| `asset_generate_sfx` | 카테고리별 SFX 일괄 (AudioGen) |
+| `asset_edit_music` | 음악 파라미터 수정 |
+| `asset_generate_video_gemini` | Gemini Veo 3/2 (5~8초) |
 | `asset_generate_video_openai` | OpenAI Sora (5~20초) |
 
-### 검토 & 검증 & 유틸
+### Canon (마스터 레퍼런스)
+
+| 도구 | 설명 |
+|------|------|
+| `asset_register_canon` | 마스터 레퍼런스 에셋을 canon registry에 등록 |
+| `asset_get_canon` / `asset_list_canon` | canon 조회 |
+| `asset_validate_consistency` | canon 대비 생성 결과물 일관성 검사 |
+
+### 계획 & 디자인 문서
+
+| 도구 | 설명 |
+|------|------|
+| `asset_create_concept` | game-concept.json 생성 |
+| `asset_parse_design_doc` | 외부 디자인 문서(GDD) 파싱 |
+| `asset_plan_requirements` | 필수 에셋 요구사항 도출 |
+| `asset_plan_by_screen` | 화면 단위 에셋 계획 |
+| `asset_generate_full_plan` | FULL_ASSET_PLAN.md 생성 |
+| `asset_generate_size_spec` | asset_size_spec.json 생성 |
+
+### 검토·검증·유틸
 
 | 도구 | 설명 |
 |------|------|
 | `asset_review` | 생성된 에셋 품질 종합 검토 (구조 + 크로마 잔류 + 비주얼 AI). mode: quick/standard/deep |
 | `asset_validate` | 네이밍 규칙 + PNG 크기 스펙 검사 |
 | `asset_list_missing` | 필수 에셋 누락 목록 (직접 지정 / spec_file / CONCEPT.md) |
-| `asset_generate_atlas_json` | 스프라이트 시트 Atlas JSON 생성 (Phaser / Unity / Cocos / Generic) |
+| `asset_generate_atlas_json` | 스프라이트 시트 Atlas JSON (Phaser / Unity / Cocos / Generic) |
 | `asset_analyze_project` | 게임 엔진 자동 감지 + 에셋 디렉토리 분석 |
 | `asset_plan_from_project` | 코드에서 참조된 미싱 에셋 계획 수립 |
+| `asset_composite` | 다중 이미지 합성 |
+| `asset_extract_palette` | 이미지에서 컬러 팔레트 추출 |
+| `asset_refine_transparency` | 크로마 잔류 후처리 재실행 |
+| `asset_convert_font_to_bitmap` | 폰트 파일 → 비트맵 스프라이트 시트 |
+| `asset_get_job_result` | 비동기 job 결과 조회 |
 
 ### 프롬프트 확장 (opt-in)
 
@@ -252,6 +322,42 @@ refine: "A heroic warrior holding an        → 이미지 생성 (디테일 ↑)
 지원 도구: `asset_generate_character_base`, `asset_generate_character_equipped`, `asset_generate_image_openai`, `asset_generate_thumbnail`, `asset_generate_loading_screen`, `asset_generate_lobby_screen`
 
 비용·지연: 호출당 ~$0.001 + ~2-4초. 디테일이 중요한 때만 선택적으로 사용 권장.
+
+---
+
+## 비용·성능 추적
+
+v2.1부터 AI를 호출하는 모든 이미지/스프라이트/UI/환경/마케팅/튜토리얼 도구는
+`assets-registry.json`의 각 에셋 `metadata`에 다음 필드를 기록합니다:
+
+```json
+"metadata": {
+  "model": "gpt-image-2",
+  "latency_ms": 12843,
+  "est_cost_usd": 0.04,
+  "cost_formula": "gpt-image-2 × high × size-mult 1 = $0.04 × 1"
+}
+```
+
+- 합성 도구(tileset, effect sheet 등)는 단가를 타일/프레임 수만큼 곱해 집계합니다.
+- 이 값은 **참고용 추정치**입니다. 실제 청구는 OpenAI / Google 공식 대시보드 기준.
+- `asset_list_assets`로 누적 비용을 빠르게 훑어볼 수 있습니다.
+
+---
+
+## HTTP 모드 (stateful 세션)
+
+```bash
+TRANSPORT=http PORT=3456 node dist/index.js
+```
+
+- `POST /mcp` — MCP JSON-RPC. initialize 요청에 응답할 때 `mcp-session-id` 헤더가 반환되며,
+  후속 요청은 같은 세션에 라우팅됩니다.
+- `GET /mcp` — SSE 스트림 재개
+- `DELETE /mcp` — 세션 종료
+- `GET /health` — `{ status, server, version, active_sessions }`
+
+각 세션은 독립된 `McpServer` 인스턴스를 가지므로 동시 다중 클라이언트가 안전합니다.
 
 ---
 
