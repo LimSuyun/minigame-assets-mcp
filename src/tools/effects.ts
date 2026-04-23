@@ -24,6 +24,7 @@ import {
   ensureDir,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { writeOptimized } from "../utils/image-output.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset } from "../types.js";
 
@@ -307,10 +308,11 @@ Returns:
           .png()
           .toBuffer();
 
-        const sheetFileName = `${safeEffectId}_sheet.png`;
-        const sheetFilePath = path.join(path.resolve(outputDir, "effects"), sheetFileName);
-        ensureDir(path.dirname(sheetFilePath));
-        fs.writeFileSync(sheetFilePath, sheetBuffer);
+        const sheetPathBase = path.join(path.resolve(outputDir, "effects"), `${safeEffectId}_sheet.png`);
+        ensureDir(path.dirname(sheetPathBase));
+        const sheetWritten = await writeOptimized(sheetBuffer, sheetPathBase);
+        const sheetFilePath = sheetWritten.path;
+        const sheetFileName = path.basename(sheetFilePath);
 
         // Generate atlas JSON
         const DEFAULT_FRAME_DURATION_MS = 80;
@@ -353,7 +355,7 @@ Returns:
           prompt: params.style_description,
           file_path: sheetFilePath,
           file_name: sheetFileName,
-          mime_type: "image/png",
+          mime_type: sheetWritten.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             effect_id: params.effect_id,
@@ -470,9 +472,10 @@ Returns:
             .png()
             .toBuffer();
 
-          const fileName = `${textType}_sample.png`;
-          const filePath = path.join(textDir, fileName);
-          fs.writeFileSync(filePath, pngBuffer);
+          const pathBase = path.join(textDir, `${textType}_sample.png`);
+          const written = await writeOptimized(pngBuffer, pathBase);
+          const filePath = written.path;
+          const fileName = path.basename(filePath);
           generatedFiles.push(filePath);
 
           const asset: GeneratedAsset = {
@@ -483,7 +486,7 @@ Returns:
             prompt: `Floating text style: ${textType}`,
             file_path: filePath,
             file_name: fileName,
-            mime_type: "image/png",
+            mime_type: written.format === "webp" ? "image/webp" : "image/png",
             created_at: new Date().toISOString(),
             metadata: {
               text_type: textType,
@@ -623,9 +626,10 @@ Returns:
               .toBuffer();
 
             const safeId = effect.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `${safeId}_icon.png`;
-            const filePath = path.join(iconDir, fileName);
-            fs.writeFileSync(filePath, resized);
+            const pathBase = path.join(iconDir, `${safeId}_icon.png`);
+            const written = await writeOptimized(resized, pathBase);
+            const filePath = written.path;
+            const fileName = path.basename(filePath);
 
             const asset: GeneratedAsset = {
               id: generateAssetId(),
@@ -635,7 +639,7 @@ Returns:
               prompt,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: written.format === "webp" ? "image/webp" : "image/png",
               created_at: new Date().toISOString(),
               metadata: {
                 effect_id: effect.id,

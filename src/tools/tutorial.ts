@@ -8,6 +8,7 @@ import { generateImageOpenAI } from "../services/openai.js";
 import { buildAssetPath, saveAssetToRegistry, generateAssetId, ensureDir } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
+import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset } from "../types.js";
 
 // ─── SVG generators ───────────────────────────────────────────────────────────
@@ -258,9 +259,10 @@ Args:
               .png()
               .toBuffer();
 
-            const fileName = `${variant}.png`;
-            const filePath = path.join(overlayDir, fileName);
-            fs.writeFileSync(filePath, pngBuffer);
+            const pathBase = path.join(overlayDir, `${variant}.png`);
+            const written = await writeOptimized(pngBuffer, pathBase);
+            const filePath = written.path;
+            const fileName = path.basename(filePath);
 
             const asset: GeneratedAsset = {
               id: generateAssetId(),
@@ -270,7 +272,7 @@ Args:
               prompt: `tutorial overlay: ${variant}`,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: written.format === "webp" ? "image/webp" : "image/png",
               created_at: new Date().toISOString(),
               metadata: {
                 element,
@@ -370,9 +372,10 @@ Returns:
           const imgBuffer = Buffer.from(result.base64, "base64");
           const pngBuffer = await sharp(imgBuffer).png().toBuffer();
 
-          const fileName = `npc_${expression}.png`;
-          const filePath = path.join(npcDir, fileName);
-          fs.writeFileSync(filePath, pngBuffer);
+          const pathBase = path.join(npcDir, `npc_${expression}.png`);
+          const written = await writeOptimized(pngBuffer, pathBase);
+          const filePath = written.path;
+          const fileName = path.basename(filePath);
 
           const asset: GeneratedAsset = {
             id: generateAssetId(),
@@ -382,7 +385,7 @@ Returns:
             prompt,
             file_path: filePath,
             file_name: fileName,
-            mime_type: "image/png",
+            mime_type: written.format === "webp" ? "image/webp" : "image/png",
             created_at: new Date().toISOString(),
             metadata: {
               expression,

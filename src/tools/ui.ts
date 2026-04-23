@@ -30,6 +30,7 @@ import {
   ensureDir,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { saveBase64Optimized } from "../utils/image-output.js";
 import type { GameConcept, GeneratedAsset, GameDesign } from "../types.js";
 
 // ─── 색상 유틸리티 ────────────────────────────────────────────────────────────
@@ -389,8 +390,8 @@ Returns:
               const svgText = generateComponentSvg(spec, state);
               const svgBuf = Buffer.from(svgText);
 
-              const fileName = `${componentId}_${state}.png`;
-              const filePath = buildAssetPath(outputDir, "ui/structural", fileName);
+              let fileName =`${componentId}_${state}.png`;
+              let filePath = buildAssetPath(outputDir, "ui/structural", fileName);
               ensureDir(path.dirname(filePath));
 
               await sharpLib(svgBuf)
@@ -525,10 +526,10 @@ Returns:
           try {
             const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
             const safeId = element.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `deco_${safeId}.png`;
-            const filePath = buildAssetPath(outputDir, "ui/decorative", fileName);
+            let fileName =`deco_${safeId}.png`;
+            let filePath = buildAssetPath(outputDir, "ui/decorative", fileName);
             ensureDir(path.dirname(filePath));
-            saveBase64File(result.base64, filePath);
+            const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
 
             const asset: GeneratedAsset = {
               id: generateAssetId(),
@@ -538,7 +539,7 @@ Returns:
               prompt,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { element_id: element.id, element_type: element.element_type },
             };
@@ -635,14 +636,14 @@ Returns:
 
             try {
               const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
-              const fileName = `btn_${size}_${state}.png`;
-              const filePath = buildAssetPath(outputDir, "ui/buttons", fileName);
+              let fileName =`btn_${size}_${state}.png`;
+              let filePath = buildAssetPath(outputDir, "ui/buttons", fileName);
               ensureDir(path.dirname(filePath));
-              saveBase64File(result.base64, filePath);
+              const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
               saveAssetToRegistry({
                 id: generateAssetId(), type: "image", asset_type: "ui_element",
                 provider: params.provider, prompt, file_path: filePath,
-                file_name: fileName, mime_type: "image/png",
+                file_name: fileName, mime_type: _saved.mimeType,
                 created_at: new Date().toISOString(),
                 metadata: { button_state: state, button_size: size },
               }, outputDir);
@@ -733,14 +734,14 @@ Returns:
 
           try {
             const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
-            const fileName = `hud_${element}.png`;
-            const filePath = buildAssetPath(outputDir, "ui/hud", fileName);
+            let fileName =`hud_${element}.png`;
+            let filePath = buildAssetPath(outputDir, "ui/hud", fileName);
             ensureDir(path.dirname(filePath));
-            saveBase64File(result.base64, filePath);
+            const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "ui_element",
               provider: params.provider, prompt, file_path: filePath,
-              file_name: fileName, mime_type: "image/png",
+              file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { hud_element: element, game_type: params.game_type },
             }, outputDir);
@@ -842,14 +843,14 @@ Returns:
           try {
             const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
             const safeId = icon.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `icon_${safeId}.png`;
-            const filePath = buildAssetPath(outputDir, "ui/icons", fileName);
+            let fileName =`icon_${safeId}.png`;
+            let filePath = buildAssetPath(outputDir, "ui/icons", fileName);
             ensureDir(path.dirname(filePath));
-            saveBase64File(result.base64, filePath);
+            const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "icon",
               provider: params.provider, prompt, file_path: filePath,
-              file_name: fileName, mime_type: "image/png",
+              file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { icon_id: icon.id, icon_style: params.icon_style },
             }, outputDir);
@@ -957,14 +958,14 @@ Returns:
               openaiModel,
               "opaque",
             );
-            const fileName = `bg_${safeScreenName}.png`;
-            const filePath = buildAssetPath(outputDir, "backgrounds", fileName);
+            let fileName =`bg_${safeScreenName}.png`;
+            let filePath = buildAssetPath(outputDir, "backgrounds", fileName);
             ensureDir(path.dirname(filePath));
-            saveBase64File(result.base64, filePath);
+            const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "background",
               provider: params.provider, prompt: BASE_PROMPT, file_path: filePath,
-              file_name: fileName, mime_type: "image/png",
+              file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { screen_name: params.screen_name, style: "static" },
             }, outputDir);
@@ -996,14 +997,14 @@ Returns:
                 openaiModel,
                 layerBackground,
               );
-              const fileName = `bg_${safeScreenName}${layer.suffix}.png`;
-              const filePath = buildAssetPath(outputDir, "backgrounds", fileName);
+              let fileName =`bg_${safeScreenName}${layer.suffix}.png`;
+              let filePath = buildAssetPath(outputDir, "backgrounds", fileName);
               ensureDir(path.dirname(filePath));
-              saveBase64File(result.base64, filePath);
+              const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
               saveAssetToRegistry({
                 id: generateAssetId(), type: "image", asset_type: "background",
                 provider: params.provider, prompt, file_path: filePath,
-                file_name: fileName, mime_type: "image/png",
+                file_name: fileName, mime_type: _saved.mimeType,
                 created_at: new Date().toISOString(),
                 metadata: { screen_name: params.screen_name, style: "parallax", layer: layer.id },
               }, outputDir);
@@ -1102,14 +1103,14 @@ Returns:
 
           try {
             const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
-            const fileName = `popup_${popupType}.png`;
-            const filePath = buildAssetPath(outputDir, "ui/popups", fileName);
+            let fileName =`popup_${popupType}.png`;
+            let filePath = buildAssetPath(outputDir, "ui/popups", fileName);
             ensureDir(path.dirname(filePath));
-            saveBase64File(result.base64, filePath);
+            const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "ui_popup",
               provider: params.provider, prompt, file_path: filePath,
-              file_name: fileName, mime_type: "image/png",
+              file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { popup_type: popupType },
             }, outputDir);
@@ -1271,15 +1272,15 @@ Returns:
           generationMethod = `openai_${effectiveModel}_${size}`;
         }
 
-        const fileName = `loading_${safeName}.png`;
-        const filePath = buildAssetPath(outputDir, "screens/loading", fileName);
+        let fileName =`loading_${safeName}.png`;
+        let filePath = buildAssetPath(outputDir, "screens/loading", fileName);
         ensureDir(path.dirname(filePath));
-        saveBase64File(base64, filePath);
+        const _saved = await saveBase64Optimized(base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
 
         const asset: GeneratedAsset = {
           id: generateAssetId(), type: "image", asset_type: "background",
           provider: "openai", prompt, file_path: filePath,
-          file_name: fileName, mime_type: "image/png",
+          file_name: fileName, mime_type: _saved.mimeType,
           created_at: new Date().toISOString(),
           metadata: {
             screen_type: "loading",
@@ -1445,15 +1446,15 @@ Returns:
           generationMethod = `openai_${effectiveModel}_${size}`;
         }
 
-        const fileName = `lobby_${safeName}.png`;
-        const filePath = buildAssetPath(outputDir, "screens/lobby", fileName);
+        let fileName =`lobby_${safeName}.png`;
+        let filePath = buildAssetPath(outputDir, "screens/lobby", fileName);
         ensureDir(path.dirname(filePath));
-        saveBase64File(base64, filePath);
+        const _saved = await saveBase64Optimized(base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
 
         const asset: GeneratedAsset = {
           id: generateAssetId(), type: "image", asset_type: "background",
           provider: "openai", prompt, file_path: filePath,
-          file_name: fileName, mime_type: "image/png",
+          file_name: fileName, mime_type: _saved.mimeType,
           created_at: new Date().toISOString(),
           metadata: {
             screen_type: "lobby",

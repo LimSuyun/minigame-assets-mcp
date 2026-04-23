@@ -8,6 +8,7 @@ import { generateImageOpenAI } from "../services/openai.js";
 import { buildAssetPath, saveAssetToRegistry, generateAssetId, ensureDir } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
+import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset } from "../types.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -177,9 +178,10 @@ Args:
               .png()
               .toBuffer();
 
-            const fileName = `${screenshot.scene}_${plat.key}.png`;
-            const filePath = path.join(screenshotsDir, fileName);
-            fs.writeFileSync(filePath, final);
+            const pathBase = path.join(screenshotsDir, `${screenshot.scene}_${plat.key}.png`);
+            const written = await writeOptimized(final, pathBase);
+            const filePath = written.path;
+            const fileName = path.basename(filePath);
 
             const asset: GeneratedAsset = {
               id: generateAssetId(),
@@ -189,7 +191,7 @@ Args:
               prompt: screenshot.caption,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: written.format === "webp" ? "image/webp" : "image/png",
               created_at: new Date().toISOString(),
               metadata: {
                 platform: plat.key,
@@ -324,9 +326,10 @@ Args:
           google_play: "google_play_banner.png",
           app_store: "app_store_banner.png",
         };
-        const fileName = fileNames[params.platform];
-        const filePath = path.join(marketingDir, fileName);
-        fs.writeFileSync(filePath, bannerBuffer);
+        const pathBase = path.join(marketingDir, fileNames[params.platform]);
+        const written = await writeOptimized(bannerBuffer, pathBase);
+        const filePath = written.path;
+        const fileName = path.basename(filePath);
 
         const asset: GeneratedAsset = {
           id: generateAssetId(),
@@ -336,7 +339,7 @@ Args:
           prompt: params.style_description || params.game_name,
           file_path: filePath,
           file_name: fileName,
-          mime_type: "image/png",
+          mime_type: written.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             platform: params.platform,
@@ -469,8 +472,10 @@ Args:
           }
 
           const finalBuffer = await sharp(platformBuffer).png().toBuffer();
-          const filePath = path.join(socialDir, spec.fileName);
-          fs.writeFileSync(filePath, finalBuffer);
+          const pathBase = path.join(socialDir, spec.fileName);
+          const written = await writeOptimized(finalBuffer, pathBase);
+          const filePath = written.path;
+          const fileName = path.basename(filePath);
 
           const asset: GeneratedAsset = {
             id: generateAssetId(),
@@ -479,8 +484,8 @@ Args:
             provider: "openai",
             prompt,
             file_path: filePath,
-            file_name: spec.fileName,
-            mime_type: "image/png",
+            file_name: fileName,
+            mime_type: written.format === "webp" ? "image/webp" : "image/png",
             created_at: new Date().toISOString(),
             metadata: {
               platform_id: spec.id,

@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { saveAssetToRegistry, generateAssetId, ensureDir } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset } from "../types.js";
 
 // ─── Character set definitions ────────────────────────────────────────────────
@@ -224,12 +225,13 @@ Args:
 
         console.error(`[font] Saving sprite sheet...`);
 
-        const sheetFileName = "bitmap_font_sheet.png";
         const configFileName = "bitmap_font_config.json";
-        const sheetPath = path.join(fontDir, sheetFileName);
+        const sheetPathBase = path.join(fontDir, "bitmap_font_sheet.png");
         const configPath = path.join(fontDir, configFileName);
 
-        fs.writeFileSync(sheetPath, currentSheet);
+        const sheetWritten = await writeOptimized(currentSheet, sheetPathBase);
+        const sheetPath = sheetWritten.path;
+        const sheetFileName = path.basename(sheetPath);
 
         const config = {
           font_size: fontSize,
@@ -255,7 +257,7 @@ Args:
           prompt: `bitmap font sheet: ${params.character_set} ${fontSize}px`,
           file_path: sheetPath,
           file_name: sheetFileName,
-          mime_type: "image/png",
+          mime_type: sheetWritten.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             font_size: fontSize,

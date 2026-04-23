@@ -44,10 +44,11 @@
 
 ### 📝 Notes
 
-- 남은 중소 도구(ui, effects, tutorial, marketing-ext, font, edit — 22+
-  쓰기 사이트)는 후속 커밋에서 동일 `saveBase64Optimized()` 헬퍼로 일괄 전환 예정.
-  생성되는 파일이 상대적으로 작아서 개별 프로젝트 총 용량에 미치는 영향은 10~15%
-  수준으로 평가.
+- UI / effects / tutorial / marketing-ext / font 도구의 잔여 쓰기 사이트도 모두
+  `saveBase64Optimized()` / `writeOptimized()` 로 통일 완료. 이제 Phaser / Cocos /
+  Godot 프로젝트에서는 **전 도구가 WebP** 로 일관되게 출력됨.
+- `edit.ts` 는 사용자 지정 경로 (`file_path` 파라미터) 로 저장하는 편집 도구라
+  엔진 자동 변환이 부적절 — 의도적으로 전환에서 제외.
 
 ## [2.1.0] - 2026-04-23
 
