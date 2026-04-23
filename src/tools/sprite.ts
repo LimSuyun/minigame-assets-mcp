@@ -23,7 +23,7 @@ import {
 } from "../utils/spritesheet-composer.js";
 import { handleApiError } from "../utils/errors.js";
 import { processFrameBase64, removeBackground, compositeOntoSolidBg, processFrameBase64AI, processFrameBase64Chroma } from "../utils/image-process.js";
-import { writeOptimized } from "../utils/image-output.js";
+import { writeOptimized, resolveOutputFormat } from "../utils/image-output.js";
 import { checkSpriteFrameQuality } from "../services/vision-qc.js";
 import { editImageOpenAI } from "../services/openai.js";
 import { refineImagePrompt } from "../services/gpt5-prompt.js";
@@ -1197,16 +1197,19 @@ Returns:
 
         if (frameInfos.length > 0) {
           try {
-            const sheetPngPath = path.join(spriteDir, `${safeCharName}_sheet.png`);
+            const sheetPathBase = path.join(spriteDir, `${safeCharName}_sheet.png`);
             // 기본: 1행 가로 스트립 (cols = frames.length). sheet_cols로 override 가능.
             const effectiveCols = params.sheet_cols ?? frameInfos.length;
+            // Engine-aware format for the sheet itself (WebP on Phaser/Cocos/Godot,
+            // PNG on Unity/unknown). Atlas JSON / plist will pick up the real
+            // extension from the returned `sheet.sheetPath`.
             const sheet = await composeSpritSheet(
               frameInfos,
-              sheetPngPath,
+              sheetPathBase,
               params.sheet_padding,
               effectiveCols,
             );
-            exportedFiles["sheet_png"] = sheetPngPath;
+            exportedFiles["sheet"] = sheet.sheetPath;
 
             if (params.export_formats.includes("phaser")) {
               const phaserPath = path.join(spriteDir, `${safeCharName}_phaser.json`);
@@ -1249,13 +1252,13 @@ Returns:
         ),
         engine_usage: {
           phaser: exportedFiles["phaser_atlas_json"]
-            ? `Phaser.Loader.atlas('${params.character_name}', '${safeCharName}_sheet.png', '${safeCharName}_phaser.json')`
+            ? `Phaser.Loader.atlas('${params.character_name}', '${path.basename(exportedFiles["sheet"] ?? "")}', '${safeCharName}_phaser.json')`
             : undefined,
           cocos: exportedFiles["cocos_plist"]
             ? `spriteFrameCache.addSpriteFramesWithFile('${safeCharName}_cocos.plist')`
             : undefined,
           unity: exportedFiles["unity_json"]
-            ? `Import ${safeCharName}_sheet.png → Sprite Mode: Multiple → Slice by cell size (see unity_json for dimensions)`
+            ? `Import ${path.basename(exportedFiles["sheet"] ?? "")} → Sprite Mode: Multiple → Slice by cell size (see unity_json for dimensions)`
             : undefined,
         },
       };

@@ -27,6 +27,7 @@ import {
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildEditCostTelemetry, buildCostTelemetry } from "../utils/cost-tracking.js";
 import { loadCanonRegistry } from "../utils/canon.js";
+import { writeOptimized } from "../utils/image-output.js";
 import { DEFAULT_ASSET_SIZE_SPEC_FILE } from "../constants.js";
 import type { GeneratedAsset } from "../types.js";
 import type { AssetSizeSpecFile, CanonEntry } from "../types.js";
@@ -204,21 +205,21 @@ Returns:
           .png()
           .toBuffer();
 
-        // Save all three sizes
-        const fullFileName = `${safeCharId}_portrait_full.png`;
-        const bustFileName = `${safeCharId}_portrait_bust.png`;
-        const thumbFileName = `${safeCharId}_portrait_thumb.png`;
-
+        // Save all three sizes (engine-aware format)
         const portraitDirResolved = path.resolve(outputDir, `portraits/${safeCharId}`);
         ensureDir(portraitDirResolved);
 
-        const fullFilePath = path.join(portraitDirResolved, fullFileName);
-        const bustFilePath = path.join(portraitDirResolved, bustFileName);
-        const thumbFilePath = path.join(portraitDirResolved, thumbFileName);
+        const fullWritten = await writeOptimized(fullBuffer, path.join(portraitDirResolved, `${safeCharId}_portrait_full.png`));
+        const bustWritten = await writeOptimized(bustBuffer, path.join(portraitDirResolved, `${safeCharId}_portrait_bust.png`));
+        const thumbWritten = await writeOptimized(thumbBuffer, path.join(portraitDirResolved, `${safeCharId}_portrait_thumb.png`));
 
-        fs.writeFileSync(fullFilePath, fullBuffer);
-        fs.writeFileSync(bustFilePath, bustBuffer);
-        fs.writeFileSync(thumbFilePath, thumbBuffer);
+        const fullFilePath = fullWritten.path;
+        const bustFilePath = bustWritten.path;
+        const thumbFilePath = thumbWritten.path;
+        const fullFileName = path.basename(fullFilePath);
+        const bustFileName = path.basename(bustFilePath);
+        const thumbFileName = path.basename(thumbFilePath);
+        const portraitMime = fullWritten.format === "webp" ? "image/webp" : "image/png";
 
         // Register all three as assets
         const baseAssetData = {
@@ -226,7 +227,7 @@ Returns:
           asset_type: "character",
           provider: "openai",
           prompt,
-          mime_type: "image/png",
+          mime_type: portraitMime,
           created_at: new Date().toISOString(),
         };
 
@@ -441,24 +442,24 @@ Returns:
           .png()
           .toBuffer();
 
-        // Save files
+        // Save files (engine-aware format)
         const cardDir = path.resolve(outputDir, `ui/cards`);
         ensureDir(cardDir);
 
-        const unlockedFileName = `${safeCharId}_card_unlocked.png`;
-        const lockedFileName = `${safeCharId}_card_locked.png`;
-        const unlockedFilePath = path.join(cardDir, unlockedFileName);
-        const lockedFilePath = path.join(cardDir, lockedFileName);
-
-        fs.writeFileSync(unlockedFilePath, unlockedBuffer);
-        fs.writeFileSync(lockedFilePath, lockedBuffer);
+        const unlockedWritten = await writeOptimized(unlockedBuffer, path.join(cardDir, `${safeCharId}_card_unlocked.png`));
+        const lockedWritten = await writeOptimized(lockedBuffer, path.join(cardDir, `${safeCharId}_card_locked.png`));
+        const unlockedFilePath = unlockedWritten.path;
+        const lockedFilePath = lockedWritten.path;
+        const unlockedFileName = path.basename(unlockedFilePath);
+        const lockedFileName = path.basename(lockedFilePath);
+        const cardMime = unlockedWritten.format === "webp" ? "image/webp" : "image/png";
 
         const baseAsset = {
           type: "image" as const,
           asset_type: "ui_element",
           provider: "sharp-composite",
           prompt: `Character card for ${params.character_name} (${params.rarity})`,
-          mime_type: "image/png",
+          mime_type: cardMime,
           created_at: new Date().toISOString(),
         };
 
@@ -642,9 +643,10 @@ Returns:
               .toBuffer();
 
             const safeId = item.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `${safeId}_part.png`;
-            const filePath = path.join(partsDir, fileName);
-            fs.writeFileSync(filePath, finalBuffer);
+            const pathBase = path.join(partsDir, `${safeId}_part.png`);
+            const written = await writeOptimized(finalBuffer, pathBase);
+            const filePath = written.path;
+            const fileName = path.basename(filePath);
 
             const asset: GeneratedAsset = {
               id: generateAssetId(),
@@ -654,7 +656,7 @@ Returns:
               prompt,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: written.format === "webp" ? "image/webp" : "image/png",
               created_at: new Date().toISOString(),
               metadata: {
                 part_id: item.id,

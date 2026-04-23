@@ -211,3 +211,32 @@ export async function writeOptimizedToPath(
   const result = await writeOptimized(buffer, targetPath, options);
   return result.path;
 }
+
+/**
+ * Engine-aware replacement for `saveBase64File(b64, filePath)` followed by a
+ * registry write. Returns pre-computed `filePath` / `fileName` / `mimeType`
+ * ready to drop into a `GeneratedAsset` entry.
+ */
+export interface SavedBase64Result {
+  filePath: string;
+  fileName: string;
+  mimeType: string;
+  format: ImageFormat;
+  sizeBytes: number;
+}
+
+export async function saveBase64Optimized(
+  base64: string,
+  targetPath: string,
+  options: WriteOptimizedOptions = {}
+): Promise<SavedBase64Result> {
+  const buffer = Buffer.from(base64, "base64");
+  const result = await writeOptimized(buffer, targetPath, options);
+  return {
+    filePath: result.path,
+    fileName: path.basename(result.path),
+    mimeType: result.format === "webp" ? "image/webp" : "image/png",
+    format: result.format,
+    sizeBytes: result.sizeBytes,
+  };
+}

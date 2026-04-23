@@ -15,6 +15,7 @@ import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
 import { generateImageGemini } from "../services/gemini.js";
 import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { writeOptimized } from "../utils/image-output.js";
 import {
   ensureDir,
   saveBase64File,
@@ -447,19 +448,20 @@ Returns:
             .toBuffer();
         }
 
-        // ── 저장 ──
+        // ── 저장 (engine-aware 포맷) ──
         const safeName = params.game_name.toLowerCase().replace(/\s+/g, "_").replace(/[^\w가-힣]/g, "");
         const ts = new Date().toISOString().slice(0, 10);
-        const fileName = `${safeName}_thumb_${params.layout}_${params.color_scheme}_${ts}.png`;
-        const finalPath = path.join(outputDir, fileName);
+        const pathBase = path.join(outputDir, `${safeName}_thumb_${params.layout}_${params.color_scheme}_${ts}.png`);
 
-        fs.writeFileSync(finalPath, finalBuf);
+        const written = await writeOptimized(finalBuf, pathBase);
+        const finalPath = written.path;
+        const fileName = path.basename(finalPath);
         try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
 
         saveAssetToRegistry({
           id: generateAssetId(), type: "image", asset_type: "thumbnail",
           provider: generationMethod, prompt,
-          file_path: finalPath, file_name: fileName, mime_type: "image/png",
+          file_path: finalPath, file_name: fileName, mime_type: written.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             game_name: params.game_name,

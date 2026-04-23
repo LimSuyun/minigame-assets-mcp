@@ -14,6 +14,7 @@ import {
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
+import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset, AssetSizeSpecFile } from "../types.js";
 
 // ─── Seamless 타일링 헬퍼 ─────────────────────────────────────────────────────
@@ -285,9 +286,10 @@ Args:
           // Seamless 타일링 처리
           const seamless = await makeSeamlessTileable(resized);
 
-          // 저장
-          const filePath = path.join(parallaxDirResolved, layer.file);
-          fs.writeFileSync(filePath, seamless);
+          // 저장 (engine-aware 포맷)
+          const pathBase = path.join(parallaxDirResolved, layer.file);
+          const written = await writeOptimized(seamless, pathBase);
+          const filePath = written.path;
 
           const asset: GeneratedAsset = {
             id: generateAssetId(),
@@ -296,8 +298,8 @@ Args:
             provider: layer.provider === "gemini" ? `gemini-${callModel}` : "openai-gpt-image-1",
             prompt,
             file_path: filePath,
-            file_name: layer.file,
-            mime_type: "image/png",
+            file_name: path.basename(filePath),
+            mime_type: written.format === "webp" ? "image/webp" : "image/png",
             created_at: new Date().toISOString(),
             metadata: {
               theme: params.theme,
@@ -526,10 +528,11 @@ Args:
           }
         }
 
-        // 파일 저장
-        const tilesetFileName = `${params.theme}_tileset.png`;
-        const tilesetPath = path.join(tilesetDir, tilesetFileName);
-        fs.writeFileSync(tilesetPath, sheetBuffer);
+        // 파일 저장 (engine-aware 포맷)
+        const tilesetPathBase = path.join(tilesetDir, `${params.theme}_tileset.png`);
+        const tilesetWritten = await writeOptimized(sheetBuffer, tilesetPathBase);
+        const tilesetPath = tilesetWritten.path;
+        const tilesetFileName = path.basename(tilesetPath);
 
         // 설정 JSON 저장
         const tilesetConfig = {
@@ -562,7 +565,7 @@ Args:
           prompt: `${params.theme} tileset, ${params.style_description}`,
           file_path: tilesetPath,
           file_name: tilesetFileName,
-          mime_type: "image/png",
+          mime_type: tilesetWritten.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             theme: params.theme,
@@ -667,8 +670,7 @@ Args:
 
         for (const prop of params.props) {
           const safeId = prop.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-          const fileName = `${safeId}.png`;
-          const filePath = path.join(propsDir, fileName);
+          const pathBase = path.join(propsDir, `${safeId}.png`);
 
           const prompt =
             `Game map prop: ${prop.name}. ${prop.description}. ` +
@@ -688,7 +690,9 @@ Args:
             const propLatencyMs = propLatency.elapsed();
 
             const buffer = base64ToBuffer(result.base64);
-            fs.writeFileSync(filePath, buffer);
+            const written = await writeOptimized(buffer, pathBase);
+            const filePath = written.path;
+            const fileName = path.basename(filePath);
 
             const asset: GeneratedAsset = {
               id: generateAssetId(),
@@ -698,7 +702,7 @@ Args:
               prompt,
               file_path: filePath,
               file_name: fileName,
-              mime_type: "image/png",
+              mime_type: written.format === "webp" ? "image/webp" : "image/png",
               created_at: new Date().toISOString(),
               metadata: {
                 theme: params.theme,
@@ -715,7 +719,7 @@ Args:
               id: prop.id,
               name: prop.name,
               file_path: "",
-              file_name: fileName,
+              file_name: path.basename(pathBase),
               success: false,
               error: err instanceof Error ? err.message : String(err),
             });
@@ -830,8 +834,7 @@ Args:
 
           for (const state of obj.states) {
             const safeState = state.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `${safeId}_${safeState}.png`;
-            const filePath = path.join(objDir, fileName);
+            const pathBase = path.join(objDir, `${safeId}_${safeState}.png`);
 
             const objectDesc = obj.description
               ? `${obj.id}: ${obj.description}`
@@ -865,7 +868,9 @@ Args:
                 .png()
                 .toBuffer();
 
-              fs.writeFileSync(filePath, resized);
+              const written = await writeOptimized(resized, pathBase);
+              const filePath = written.path;
+              const fileName = path.basename(filePath);
 
               const asset: GeneratedAsset = {
                 id: generateAssetId(),
@@ -875,7 +880,7 @@ Args:
                 prompt,
                 file_path: filePath,
                 file_name: fileName,
-                mime_type: "image/png",
+                mime_type: written.format === "webp" ? "image/webp" : "image/png",
                 created_at: new Date().toISOString(),
                 metadata: {
                   object_id: obj.id,
@@ -891,7 +896,7 @@ Args:
               stateResults.push({
                 state,
                 file_path: "",
-                file_name: fileName,
+                file_name: path.basename(pathBase),
                 success: false,
                 error: err instanceof Error ? err.message : String(err),
               });

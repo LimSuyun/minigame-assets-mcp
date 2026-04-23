@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import * as fs from "fs";
 import * as path from "path";
+import { resolveOutputFormat, type ImageFormat } from "./image-output.js";
 
 // ─── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,13 @@ export async function composeSpritSheet(
    * - 2행 그리드: cols = Math.ceil(frames.length / 2)
    */
   cols?: number,
+  /**
+   * Output format — omit to auto-resolve via engine detection (WebP for
+   * Phaser/Cocos/Godot, PNG for Unity/unknown). The actual written file
+   * path (returned in `ComposedSheet.sheetPath`) will have the chosen
+   * extension, which may differ from `outputPath`'s extension.
+   */
+  format?: ImageFormat,
 ): Promise<ComposedSheet> {
   if (frames.length === 0) throw new Error("No frames to compose");
 
@@ -85,21 +93,38 @@ export async function composeSpritSheet(
     positionedFrames.push({ ...frames[i], x, y, w: frameW, h: frameH });
   }
 
-  // 투명 배경 캔버스에 정규화된 프레임 합성
-  await sharp({
+  // Resolve format — engine-aware by default, caller can force via `format`
+  const resolvedFormat: ImageFormat = format ?? resolveOutputFormat();
+  const parsed = path.parse(outputPath);
+  const finalPath = path.join(parsed.dir, `${parsed.name}.${resolvedFormat}`);
+
+  let pipeline = sharp({
     create: {
       width: sheetW,
       height: sheetH,
       channels: 4,
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     },
-  })
-    .composite(compositeInputs)
-    .png()
-    .toFile(outputPath);
+  }).composite(compositeInputs);
+
+  if (resolvedFormat === "webp") {
+    pipeline = pipeline.webp({
+      quality: 90,
+      alphaQuality: 100,
+      effort: 4,
+      smartSubsample: true,
+    });
+  } else {
+    pipeline = pipeline.png({
+      compressionLevel: 9,
+      adaptiveFiltering: true,
+    });
+  }
+
+  await pipeline.toFile(finalPath);
 
   return {
-    sheetPath: outputPath,
+    sheetPath: finalPath,
     sheetWidth: sheetW,
     sheetHeight: sheetH,
     frameWidth: frameW,
@@ -150,12 +175,14 @@ export function exportCocosPlist(
   sheet: ComposedSheet,
   outputPath: string
 ): string {
+  // Frame identifier extension conventionally matches the sheet's format
+  const sheetExt = path.extname(sheet.sheetPath).slice(1) || "png"; // "webp" or "png"
   const frameEntries = sheet.frames
     .map((f) => {
       // Cocos2d 포맷: {{x,y},{w,h}} (y축은 bottom-up이므로 변환 필요)
       const cocosY = sheet.sheetHeight - f.y - f.h;
       return `
-    <key>${f.name}.png</key>
+    <key>${f.name}.${sheetExt}</key>
     <dict>
       <key>frame</key>
       <string>{{${f.x},${cocosY}},{${f.w},${f.h}}}</string>

@@ -14,6 +14,7 @@ import {
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
+import { writeOptimized } from "../utils/image-output.js";
 
 const LOGO_SIZE = 600;
 const LOGO_SUBDIR = "logos";
@@ -287,21 +288,30 @@ Returns:
 
           const safeName = params.game_name.toLowerCase().replace(/\s+/g, "_").replace(/[^\w가-힣]/g, "");
           const ts = new Date().toISOString().slice(0, 10);
-          const fileName = `${safeName}_logo_${scheme}_${ts}.png`;
-          const finalPath = path.join(outputDir, fileName);
+          // Intermediate PNG (corner vignette + text overlay operate on PNG)
+          const pngPath = path.join(outputDir, `${safeName}_logo_${scheme}_${ts}.png`);
 
-          await fixCornerVignette(tmpRaw, finalPath);
+          await fixCornerVignette(tmpRaw, pngPath);
           fs.unlinkSync(tmpRaw);
 
           if (params.add_text) {
-            await addLogoText(finalPath, params.game_name, scheme);
+            await addLogoText(pngPath, params.game_name, scheme);
+          }
+
+          // Engine-aware final encode — if engine supports WebP, drop the PNG
+          const pngBuf = fs.readFileSync(pngPath);
+          const written = await writeOptimized(pngBuf, pngPath);
+          const finalPath = written.path;
+          const fileName = path.basename(finalPath);
+          if (finalPath !== pngPath) {
+            fs.unlinkSync(pngPath);
           }
 
           saveAssetToRegistry({
             id: generateAssetId(), type: "image", asset_type: "logo",
             provider: useCharRef ? "gemini" : "openai/gpt-image-1",
             prompt: revisedPrompt, file_path: finalPath, file_name: fileName,
-            mime_type: "image/png", created_at: new Date().toISOString(),
+            mime_type: written.format === "webp" ? "image/webp" : "image/png", created_at: new Date().toISOString(),
             metadata: {
               game_name: params.game_name, color_scheme: scheme,
               size: `${LOGO_SIZE}x${LOGO_SIZE}`,
