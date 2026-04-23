@@ -13,6 +13,7 @@ import {
   generateAssetId,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 
 const LOGO_SIZE = 600;
 const LOGO_SUBDIR = "logos";
@@ -238,7 +239,11 @@ Returns:
         for (const scheme of schemes) {
           let base64: string;
           let revisedPrompt: string;
+          let callModel: string;
+          let callKind: "edit" | "generate";
+          let refCount = 0;
 
+          const latency = startLatencyTracker();
           if (useCharRef) {
             const prompt = buildLogoEditPrompt({
               game_name: params.game_name, genre: params.genre,
@@ -257,6 +262,9 @@ Returns:
             });
             base64 = r.base64;
             revisedPrompt = prompt;
+            callModel = "gemini-2.5-flash-image";
+            callKind = "edit";
+            refCount = refs.length;
           } else {
             const prompt = buildLogoPrompt({
               game_name: params.game_name, genre: params.genre,
@@ -269,7 +277,10 @@ Returns:
             });
             base64 = r.base64;
             revisedPrompt = r.revisedPrompt;
+            callModel = "gpt-image-1-mini";
+            callKind = "generate";
           }
+          const latencyMs = latency.elapsed();
 
           const tmpRaw = path.join(outputDir, `_tmp_${Date.now()}.png`);
           saveBase64File(base64, tmpRaw);
@@ -296,6 +307,10 @@ Returns:
               size: `${LOGO_SIZE}x${LOGO_SIZE}`,
               character_ref_mode: useCharRef,
               add_text: params.add_text,
+              model: callModel,
+              ...(callKind === "edit"
+                ? buildEditCostTelemetry(callModel, "1024x1024", latencyMs, refCount)
+                : buildCostTelemetry(callModel, "high", "1024x1024", latencyMs)),
             },
           }, outputDir);
 

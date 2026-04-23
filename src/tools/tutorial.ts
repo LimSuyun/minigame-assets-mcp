@@ -7,6 +7,7 @@ import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { buildAssetPath, saveAssetToRegistry, generateAssetId, ensureDir } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset } from "../types.js";
 
 // ─── SVG generators ───────────────────────────────────────────────────────────
@@ -357,12 +358,14 @@ Returns:
         for (const expression of orderedExpressions) {
           const prompt = `${params.npc_description}, ${expression} expression, full body, transparent background, 2D game guide NPC sprite, cute cartoon style, game asset`;
 
+          const npcLatency = startLatencyTracker();
           const result = await generateImageOpenAI({
             prompt,
             size: "1024x1024",
             quality: "medium",
             background: "transparent",
           });
+          const npcLatencyMs = npcLatency.elapsed();
 
           const imgBuffer = Buffer.from(result.base64, "base64");
           const pngBuffer = await sharp(imgBuffer).png().toBuffer();
@@ -384,6 +387,7 @@ Returns:
             metadata: {
               expression,
               npc_description: params.npc_description,
+              ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", npcLatencyMs),
             },
           };
           saveAssetToRegistry(asset, outputDir);

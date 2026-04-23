@@ -13,6 +13,7 @@ import {
   ensureDir,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset, AssetSizeSpecFile } from "../types.js";
 
 // ─── Seamless 타일링 헬퍼 ─────────────────────────────────────────────────────
@@ -246,6 +247,9 @@ Args:
 
           let rawBuffer: Buffer;
 
+          let callModel: string = "gpt-image-1-mini";
+          let callSize: string | undefined;
+          const latency = startLatencyTracker();
           if (layer.provider === "gemini") {
             // 종횡비 계산 → Gemini aspectRatio
             const ratio = layerW / layerH;
@@ -257,6 +261,7 @@ Args:
 
             const result = await generateImageGemini({ prompt, aspectRatio });
             rawBuffer = base64ToBuffer(result.base64);
+            callModel = result.model;
           } else {
             // gpt-image-1 — 투명 배경
             const openaiSize = nearestOpenAISize(layerW, layerH);
@@ -267,7 +272,9 @@ Args:
               background: "transparent",
             });
             rawBuffer = base64ToBuffer(result.base64);
+            callSize = openaiSize;
           }
+          const layerLatencyMs = latency.elapsed();
 
           // 목표 크기로 리사이즈
           const resized = await sharp(rawBuffer)
@@ -286,7 +293,7 @@ Args:
             id: generateAssetId(),
             type: "image",
             asset_type: "background",
-            provider: layer.provider === "gemini" ? "gemini-imagen" : "openai-gpt-image-1",
+            provider: layer.provider === "gemini" ? `gemini-${callModel}` : "openai-gpt-image-1",
             prompt,
             file_path: filePath,
             file_name: layer.file,
@@ -299,6 +306,8 @@ Args:
               speed_factor: layer.speedFactor,
               width: layerW,
               height: layerH,
+              model: callModel,
+              ...buildCostTelemetry(callModel, "medium", callSize, layerLatencyMs),
             },
           };
           saveAssetToRegistry(asset, outputDir);
@@ -469,6 +478,7 @@ Args:
 
         // 표준 타일 16개를 gpt-image-1로 생성 후 시트에 배치
         const generatedTiles: Array<{ id: number; success: boolean; error?: string }> = [];
+        const tilesetLatency = startLatencyTracker();
 
         for (const tileDef of standardTiles) {
           const col = tileDef.id % COLS;
@@ -537,6 +547,13 @@ Args:
         const configPath = path.join(tilesetDir, configFileName);
         fs.writeFileSync(configPath, JSON.stringify(tilesetConfig, null, 2));
 
+        const tilesetSuccessCount = generatedTiles.filter((t) => t.success).length;
+        const tilesetLatencyMs = tilesetLatency.elapsed();
+        const tilesetCost = buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", tilesetLatencyMs);
+        // 타일 1장당 cost를 성공한 타일 수만큼 곱해 집계
+        tilesetCost.est_cost_usd = +(tilesetCost.est_cost_usd * tilesetSuccessCount).toFixed(4);
+        tilesetCost.cost_formula = `${tilesetCost.cost_formula} × ${tilesetSuccessCount} tiles`;
+
         const asset: GeneratedAsset = {
           id: generateAssetId(),
           type: "image",
@@ -554,6 +571,7 @@ Args:
             cols: COLS,
             rows: ROWS,
             config_path: configPath,
+            ...tilesetCost,
           },
         };
         saveAssetToRegistry(asset, outputDir);
@@ -660,12 +678,14 @@ Args:
             `Clean 2D game asset, full object visible, centered in frame. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           try {
+            const propLatency = startLatencyTracker();
             const result = await generateImageOpenAI({
               prompt,
               size: "1024x1024",
               quality: "medium",
               background: "transparent",
             });
+            const propLatencyMs = propLatency.elapsed();
 
             const buffer = base64ToBuffer(result.base64);
             fs.writeFileSync(filePath, buffer);
@@ -684,6 +704,7 @@ Args:
                 theme: params.theme,
                 prop_id: prop.id,
                 prop_name: prop.name,
+                ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", propLatencyMs),
               },
             };
             saveAssetToRegistry(asset, outputDir);
@@ -827,12 +848,14 @@ Args:
 
             try {
               const openaiSize: "1024x1024" = "1024x1024";
+              const stateLatency = startLatencyTracker();
               const result = await generateImageOpenAI({
                 prompt,
                 size: openaiSize,
                 quality: "medium",
                 background: "transparent",
               });
+              const stateLatencyMs = stateLatency.elapsed();
 
               const rawBuffer = base64ToBuffer(result.base64);
 
@@ -858,6 +881,7 @@ Args:
                   object_id: obj.id,
                   state,
                   frame_size: F,
+                  ...buildCostTelemetry("gpt-image-1-mini", "medium", openaiSize, stateLatencyMs),
                 },
               };
               saveAssetToRegistry(asset, outputDir);

@@ -25,6 +25,7 @@ import {
   ensureDir,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildEditCostTelemetry, buildCostTelemetry } from "../utils/cost-tracking.js";
 import { loadCanonRegistry } from "../utils/canon.js";
 import { DEFAULT_ASSET_SIZE_SPEC_FILE } from "../constants.js";
 import type { GeneratedAsset } from "../types.js";
@@ -181,11 +182,14 @@ Returns:
           `${NO_TEXT_IN_IMAGE}`;
 
         // Generate full portrait via gpt-image-1 image edit
+        const portraitLatency = startLatencyTracker();
         const fullResult = await editImageOpenAI({
           imagePath: resolvedBase,
           prompt,
           size: "1024x1024",
         });
+        const portraitLatencyMs = portraitLatency.elapsed();
+        const portraitCost = buildEditCostTelemetry("gpt-image-1-mini", "1024x1024", portraitLatencyMs, 1);
 
         const fullBuffer = Buffer.from(fullResult.base64, "base64");
 
@@ -232,7 +236,7 @@ Returns:
             id: generateAssetId(),
             file_path: fullFilePath,
             file_name: fullFileName,
-            metadata: { character_id: params.character_id, pose: params.pose, size: "full", canon_base: resolvedBase },
+            metadata: { character_id: params.character_id, pose: params.pose, size: "full", canon_base: resolvedBase, ...portraitCost },
           },
           {
             ...baseAssetData,
@@ -617,12 +621,14 @@ Returns:
               `${styleHint} Transparent PNG, isolated part only. ` +
               `${NO_TEXT_IN_IMAGE}`;
 
+            const partLatency = startLatencyTracker();
             const result = await generateImageOpenAI({
               prompt,
               size: "1024x1024",
               quality: "medium",
               background: "transparent",
             });
+            const partLatencyMs = partLatency.elapsed();
 
             const rawBuffer = Buffer.from(result.base64, "base64");
 
@@ -656,6 +662,7 @@ Returns:
                 category: params.category,
                 canvas_size: CANVAS_SIZE,
                 character_base_path: resolvedBase,
+                ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", partLatencyMs),
               },
             };
             saveAssetToRegistry(asset, outputDir);

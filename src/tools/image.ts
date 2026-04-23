@@ -16,6 +16,7 @@ import {
 } from "../utils/files.js";
 import { addPadding } from "../utils/image-process.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GameConcept, GeneratedAsset } from "../types.js";
 
 function loadConceptForPrompt(conceptFile: string): string {
@@ -189,6 +190,7 @@ Returns:
 
         const enrichedPrompt = buildEnrichedPrompt(userPrompt, params.asset_type, conceptHint);
 
+        const latency = startLatencyTracker();
         const result = await generateImageOpenAI({
           prompt: enrichedPrompt,
           model: params.model,
@@ -222,6 +224,7 @@ Returns:
             quality: params.quality,
             refined_by_gpt5: refinedByGPT5,
             ...(refinedByGPT5 ? { refined_prompt: userPrompt } : {}),
+            ...buildCostTelemetry(params.model, params.quality, params.size, latency.elapsed()),
           },
         };
 
@@ -299,6 +302,7 @@ Returns:
         const conceptHint = params.use_concept ? loadConceptForPrompt(conceptFile) : "";
         const enrichedPrompt = buildEnrichedPrompt(params.prompt, params.asset_type, conceptHint);
 
+        const latency = startLatencyTracker();
         const result = await generateImageGemini({
           prompt: enrichedPrompt,
           model: params.model,
@@ -332,6 +336,7 @@ Returns:
             aspect_ratio: params.aspect_ratio,
             negative_prompt: params.negative_prompt,
             model: result.model,
+            ...buildCostTelemetry(result.model, "high", undefined, latency.elapsed()),
           },
         };
 
@@ -444,7 +449,9 @@ Returns:
         try {
           let base64: string;
           let mimeType: string;
+          let usedModel: string = model;
 
+          const latency = startLatencyTracker();
           if (provider === "gemini") {
             const r = await generateImageGemini({
               prompt: finalPrompt,
@@ -452,9 +459,11 @@ Returns:
             });
             base64 = r.base64;
             mimeType = r.mimeType;
+            usedModel = r.model;
           } else {
             const r = await generateImageOpenAI({
               prompt: finalPrompt,
+              model: spec.model,
               size: spec.size,
               quality: spec.quality ?? "medium",
               background: "transparent",
@@ -462,6 +471,7 @@ Returns:
             base64 = r.base64;
             mimeType = r.mimeType;
           }
+          const latencyMs = latency.elapsed();
 
           const ext = mimeType.includes("jpeg") ? "jpg" : "png";
           const fileName = generateFileName(`${spec.asset_type}_${provider}`, ext);
@@ -483,7 +493,10 @@ Returns:
             file_name: fileName,
             mime_type: mimeType,
             created_at: new Date().toISOString(),
-            metadata: {},
+            metadata: {
+              model: usedModel,
+              ...buildCostTelemetry(usedModel, spec.quality ?? "medium", spec.size, latencyMs),
+            },
           };
 
           saveAssetToRegistry(asset, outputDir);
@@ -575,13 +588,16 @@ Returns:
 
         let base64: string;
         let mimeType: string;
+        let usedModel = "gpt-image-1-mini";
 
+        const latency = startLatencyTracker();
         if (provider === "gemini") {
           const adaptedPrompt = adaptPromptForGemini(params.prompt);
           const aspectRatio = params.asset_type === "background" ? "9:16" : "1:1";
           const r = await generateImageGemini({ prompt: adaptedPrompt, aspectRatio });
           base64 = r.base64;
           mimeType = r.mimeType;
+          usedModel = r.model;
         } else {
           const enrichedPrompt = buildEnrichedPrompt(params.prompt, params.asset_type, conceptHint);
           const r = await generateImageOpenAI({
@@ -592,6 +608,7 @@ Returns:
           base64 = r.base64;
           mimeType = r.mimeType;
         }
+        const latencyMs = latency.elapsed();
 
         const ext = mimeType.includes("jpeg") ? "jpg" : "png";
         const fileName = generateFileName(`${params.asset_type}_${provider}`, ext);
@@ -613,7 +630,10 @@ Returns:
           file_name: fileName,
           mime_type: mimeType,
           created_at: new Date().toISOString(),
-          metadata: {},
+          metadata: {
+            model: usedModel,
+            ...buildCostTelemetry(usedModel, "medium", undefined, latencyMs),
+          },
         };
 
         saveAssetToRegistry(asset, outputDir);
@@ -695,6 +715,7 @@ Returns:
       try {
         const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
 
+        const latency = startLatencyTracker();
         const result = await generateImageWithResponses({
           prompt: params.prompt,
           textModel: params.text_model,
@@ -729,6 +750,7 @@ Returns:
             size: params.size,
             quality: params.quality,
             input_images: params.input_image_paths,
+            ...buildCostTelemetry(params.text_model, params.quality, params.size, latency.elapsed()),
           },
         };
         saveAssetToRegistry(asset, outputDir);

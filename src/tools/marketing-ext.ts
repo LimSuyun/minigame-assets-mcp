@@ -7,6 +7,7 @@ import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 import { buildAssetPath, saveAssetToRegistry, generateAssetId, ensureDir } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset } from "../types.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ Args:
         for (const screenshot of params.screenshots) {
           let baseImageBuffer: Buffer;
 
+          let screenshotCost: { latency_ms: number; est_cost_usd: number; cost_formula?: string; model?: string } | null = null;
           if (screenshot.background_image_path && fs.existsSync(screenshot.background_image_path)) {
             // Use existing image: resize to largest needed dimension then blur overlay
             const maxWidth = Math.max(...platforms.map((p) => p.width));
@@ -133,12 +135,14 @@ Args:
           } else {
             // Generate with gpt-image-1
             const prompt = `${params.style_description || "vibrant colorful game"} screenshot scene: ${screenshot.scene}, ${params.game_name} mobile game, high quality game artwork`;
+            const shotLatency = startLatencyTracker();
             const result = await generateImageOpenAI({
               prompt,
               size: "1024x1536",
               quality: "high",
               background: "opaque",
             });
+            screenshotCost = buildCostTelemetry("gpt-image-1-mini", "high", "1024x1536", shotLatency.elapsed());
             baseImageBuffer = Buffer.from(result.base64, "base64");
           }
 
@@ -193,6 +197,7 @@ Args:
                 width: plat.width,
                 height: plat.height,
                 game_name: params.game_name,
+                ...(screenshotCost ?? {}),
               },
             };
             saveAssetToRegistry(asset, outputDir);
@@ -270,6 +275,7 @@ Args:
         const BANNER_HEIGHT = 500;
 
         let bannerBuffer: Buffer;
+        const bannerLatency = startLatencyTracker();
 
         if (params.key_visual_path && fs.existsSync(params.key_visual_path)) {
           // Generate a background image, then composite the key visual
@@ -312,6 +318,7 @@ Args:
             .png()
             .toBuffer();
         }
+        const bannerLatencyMs = bannerLatency.elapsed();
 
         const fileNames: Record<string, string> = {
           google_play: "google_play_banner.png",
@@ -336,6 +343,7 @@ Args:
             width: BANNER_WIDTH,
             height: BANNER_HEIGHT,
             game_name: params.game_name,
+            ...buildCostTelemetry("gpt-image-1-mini", "high", "1536x1024", bannerLatencyMs),
           },
         };
         saveAssetToRegistry(asset, outputDir);
@@ -421,12 +429,14 @@ Args:
 
         const prompt = `${params.style_description || "vibrant colorful game art"} ${eventDescriptions[params.event_type]} for ${params.game_name} mobile game, eye-catching promotional artwork${params.caption ? `, tagline: ${params.caption}` : ""}, high quality`;
 
+        const socialLatency = startLatencyTracker();
         const result = await generateImageOpenAI({
           prompt,
           size: "1024x1024",
           quality: "high",
           background: "opaque",
         });
+        const socialCost = buildCostTelemetry("gpt-image-1-mini", "high", "1024x1024", socialLatency.elapsed());
 
         const baseBuffer = Buffer.from(result.base64, "base64");
 
@@ -478,6 +488,7 @@ Args:
               width: spec.width,
               height: spec.height,
               game_name: params.game_name,
+              ...socialCost,
             },
           };
           saveAssetToRegistry(asset, outputDir);

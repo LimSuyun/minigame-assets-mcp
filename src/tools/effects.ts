@@ -24,6 +24,7 @@ import {
   ensureDir,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset } from "../types.js";
 
 // ─── 이펙트 Atlas JSON 타입 ────────────────────────────────────────────────────
@@ -254,6 +255,7 @@ Returns:
 
         // Generate each frame individually
         const frameBuffers: Buffer[] = [];
+        const sheetLatency = startLatencyTracker();
         for (let i = 0; i < frameCount; i++) {
           const prompt =
             `Single frame of ${params.style_description}, frame ${i + 1}/${frameCount}, ` +
@@ -338,6 +340,11 @@ Returns:
         fs.writeFileSync(atlasFilePath, JSON.stringify(atlas, null, 2));
 
         // Register sheet as asset
+        const sheetLatencyMs = sheetLatency.elapsed();
+        const sheetCost = buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", sheetLatencyMs);
+        sheetCost.est_cost_usd = +(sheetCost.est_cost_usd * frameCount).toFixed(4);
+        sheetCost.cost_formula = `${sheetCost.cost_formula} × ${frameCount} frames`;
+
         const asset: GeneratedAsset = {
           id: generateAssetId(),
           type: "image",
@@ -356,6 +363,7 @@ Returns:
             cols,
             rows,
             atlas_path: atlasFilePath,
+            ...sheetCost,
           },
         };
         saveAssetToRegistry(asset, outputDir);
@@ -598,12 +606,14 @@ Returns:
               `Transparent background, centered icon, ${iconSize}x${iconSize} pixel icon style, ` +
               `clear and readable at small size, no border frame. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
+            const iconLatency = startLatencyTracker();
             const result = await generateImageOpenAI({
               prompt,
               size: "1024x1024",
               quality: "medium",
               background: "transparent",
             });
+            const iconLatencyMs = iconLatency.elapsed();
 
             // Resize to target icon size
             const rawBuffer = Buffer.from(result.base64, "base64");
@@ -632,6 +642,7 @@ Returns:
                 effect_name: effect.name,
                 effect_type: effect.type,
                 icon_size: iconSize,
+                ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", iconLatencyMs),
               },
             };
             saveAssetToRegistry(asset, outputDir);

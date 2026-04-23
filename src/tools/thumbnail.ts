@@ -22,6 +22,7 @@ import {
   generateAssetId,
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
+import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 
 const THUMB_W = 1932;
 const THUMB_H = 828;
@@ -382,6 +383,13 @@ Returns:
           | "gpt-image-1"
           | "gpt-image-1-mini";
 
+        const latency = startLatencyTracker();
+        type CallKind = "edit" | "generate";
+        let callKind: CallKind = "generate";
+        let callSize: string | undefined;
+        let callQuality: "low" | "medium" | "high" | "auto" = params.quality;
+        let callModel: string = effectiveModel;
+
         if (refPaths.length > 0) {
           // ── 레퍼런스 이미지 기반: OpenAI edit API (기본: gpt-image-2) ──
           // 캐릭터 + 배경을 다중 레퍼런스로 전달 → AI가 구도 새로 짜서 썸네일 합성
@@ -393,11 +401,15 @@ Returns:
           });
           base64 = r.base64;
           generationMethod = `openai_${effectiveModel}_edit (${refPaths.length} refs)`;
+          callKind = "edit";
+          callSize = "1536x1024";
         } else if (params.provider === "gemini") {
           // ── Gemini Imagen 16:9 ──
           const r = await generateImageGemini({ prompt, aspectRatio: "16:9" });
           base64 = r.base64;
           generationMethod = "gemini_imagen_16:9";
+          callModel = r.model;
+          callQuality = "high";
         } else {
           // ── OpenAI wide (기본: gpt-image-2) ──
           const r = await generateImageOpenAI({
@@ -409,7 +421,9 @@ Returns:
           });
           base64 = r.base64;
           generationMethod = `openai_${effectiveModel}_1792x1024`;
+          callSize = "1792x1024";
         }
+        const latencyMs = latency.elapsed();
 
         // ── 1932×828 리사이즈 (cover crop) ──
         saveBase64File(base64, tmpPath);
@@ -457,6 +471,10 @@ Returns:
             add_text: params.add_text,
             refined_by_gpt5: refinedByGPT5,
             ...(refinedByGPT5 ? { refined_prompt: prompt } : {}),
+            model: callModel,
+            ...(callKind === "edit"
+              ? buildEditCostTelemetry(callModel, callSize, latencyMs, refPaths.length)
+              : buildCostTelemetry(callModel, callQuality, callSize, latencyMs)),
           },
         }, outputDir);
 
