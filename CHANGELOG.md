@@ -5,7 +5,7 @@
 포맷은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 따르고,
 버전은 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
-## [Unreleased]
+## [2.2.0] - 2026-04-23
 
 ### ✨ Added
 
