@@ -87,6 +87,7 @@ Returns:
           negativePrompt: params.negative_prompt,
         });
 
+        const providerTag = `gemini-${result.model}`;
         const fileName = generateFileName(`${params.video_type}_gemini`, "mp4");
         const filePath = buildAssetPath(outputDir, "videos", fileName);
 
@@ -96,7 +97,7 @@ Returns:
           id: generateAssetId(),
           type: "video",
           asset_type: params.video_type,
-          provider: "gemini-veo2",
+          provider: providerTag,
           prompt: params.prompt,
           file_path: filePath,
           file_name: fileName,
@@ -106,6 +107,7 @@ Returns:
             duration_seconds: params.duration_seconds,
             aspect_ratio: params.aspect_ratio,
             video_uri: result.videoUri,
+            model: result.model,
           },
         };
 
@@ -117,7 +119,7 @@ Returns:
           asset_id: asset.id,
           video_type: params.video_type,
           duration_seconds: params.duration_seconds,
-          provider: "gemini-veo2",
+          provider: providerTag,
         };
 
         return {

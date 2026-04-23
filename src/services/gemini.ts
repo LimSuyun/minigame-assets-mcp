@@ -20,7 +20,7 @@ export interface GeminiImageParams {
 
 export async function generateImageGemini(
   params: GeminiImageParams
-): Promise<{ base64: string; mimeType: string }> {
+): Promise<{ base64: string; mimeType: string; model: string }> {
   const apiKey = getApiKey();
   const model = params.model || "imagen-4.0-generate-001";
   const url = `${GEMINI_API_URL}/models/${model}:predict?key=${apiKey}`;
@@ -56,6 +56,7 @@ export async function generateImageGemini(
   return {
     base64: prediction.bytesBase64Encoded,
     mimeType: prediction.mimeType || "image/png",
+    model,
   };
 }
 
@@ -96,7 +97,7 @@ async function pollVideoOperation(
 
 export async function generateVideoGemini(
   params: GeminiVideoParams
-): Promise<{ videoUri: string }> {
+): Promise<{ videoUri: string; model: string }> {
   const apiKey = getApiKey();
   const model = params.model || "veo-3.0-generate-001";
   const url = `${GEMINI_API_URL}/models/${model}:predictLongRunning?key=${apiKey}`;
@@ -134,7 +135,7 @@ export async function generateVideoGemini(
     throw new Error("Gemini Veo did not return a video URI");
   }
 
-  return { videoUri };
+  return { videoUri, model };
 }
 
 // ─── Vision 텍스트 분석 (Gemini 2.5 Flash) ───────────────────────────────────

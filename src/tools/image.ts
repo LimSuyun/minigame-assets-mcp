@@ -60,12 +60,13 @@ function buildStyledPrompt(prompt: string, baseStyle: string): string {
 
 /**
  * asset_type에 따라 기본 AI 프로바이더를 반환합니다.
- * - background → Gemini (넓은 배경 장면에 강함)
- * - 그 외 (character, sprite, icon, ui_element, tile, effect, logo 등) → OpenAI (투명 배경, 단일 오브젝트)
+ *
+ * v2.0부터 **모든 타입에서 OpenAI(gpt-image-* 계열)**이 기본값입니다.
+ * 배경도 gpt-image-2가 디테일/텍스트 품질이 더 우수합니다.
+ * 투명 레이어가 필수인 parallax mid/near 같은 특수 케이스는
+ * 도구별로 별도 처리하며, 필요 시 호출자가 provider: "gemini"를 명시합니다.
  */
 function getDefaultProvider(_assetType: string): "openai" | "gemini" {
-  // 모든 에셋 타입 기본 openai(gpt-image-2). 배경도 gpt-image-2가 디테일/텍스트 품질 우수.
-  // 투명 레이어가 필수인 파라락스 mid/near 같은 특수 케이스는 도구별로 별도 처리.
   return "openai";
 }
 
@@ -118,7 +119,13 @@ export function registerImageTools(server: McpServer): void {
     "asset_generate_image_openai",
     {
       title: "Generate Game Asset Image (OpenAI)",
-      description: `Generate a game asset image using OpenAI gpt-image-1 (default).
+      description: `Generate a game asset image using OpenAI gpt-image-1-mini (default — 2D 미니게임 저비용 최적).
+
+**모델 선택 정책 (범용 이미지 도구):**
+- 기본값 gpt-image-1-mini — 단순 치비/2D 에셋, 투명 배경 네이티브 지원, 저비용
+- 고디테일·텍스트·4K가 필요한 경우 model: "gpt-image-2" 명시 (투명 배경 미지원 → auto로 자동 강등됨)
+- 중간 품질이 필요하면 model: "gpt-image-1.5"
+※ 캐릭터/썸네일/로딩·로비 화면 등 특수 목적 도구는 내부적으로 gpt-image-2를 기본값으로 사용합니다.
 
 **CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
@@ -245,12 +252,12 @@ Returns:
     }
   );
 
-  // ── Generate Image (Gemini Imagen 3) ───────────────────────────────────────
+  // ── Generate Image (Gemini Imagen 4) ───────────────────────────────────────
   server.registerTool(
     "asset_generate_image_gemini",
     {
-      title: "Generate Game Asset Image (Gemini Imagen 3)",
-      description: `Generate a game asset image using Google Gemini Imagen 3.
+      title: "Generate Game Asset Image (Gemini Imagen 4)",
+      description: `Generate a game asset image using Google Gemini Imagen 4.
 
 **CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
@@ -309,11 +316,13 @@ Returns:
           await addPadding(filePath, filePath, 5);
         }
 
+        const providerTag = `gemini-${result.model}`;
+
         const asset: GeneratedAsset = {
           id: generateAssetId(),
           type: "image",
           asset_type: params.asset_type,
-          provider: "gemini-imagen3",
+          provider: providerTag,
           prompt: params.prompt,
           file_path: filePath,
           file_name: fileName,
@@ -322,6 +331,7 @@ Returns:
           metadata: {
             aspect_ratio: params.aspect_ratio,
             negative_prompt: params.negative_prompt,
+            model: result.model,
           },
         };
 
@@ -336,7 +346,7 @@ Returns:
                 file_path: filePath,
                 asset_id: asset.id,
                 asset_type: params.asset_type,
-                provider: "gemini-imagen3",
+                provider: providerTag,
               }, null, 2),
             },
           ],
@@ -363,9 +373,10 @@ Returns:
 
 Useful for generating a complete set of initial assets for a game (characters, backgrounds, UI elements, etc.).
 
-**기본 프로바이더 규칙 (provider 미지정 시 자동 선택):**
-- background → Gemini (넓은 배경 장면 생성에 강함)
-- character / sprite / icon / ui_element / tile / effect / logo / other → OpenAI GPT-Image-1 (투명 배경, 단일 오브젝트)
+**기본 프로바이더 규칙 (v2.0+):**
+- 모든 에셋 타입 기본 OpenAI (gpt-image-1-mini 저비용 / 필요 시 gpt-image-2 고품질).
+- 배경도 gpt-image-2의 디테일/텍스트 렌더링이 우수합니다.
+- 투명 레이어가 필수인 parallax mid/near 같은 특수 케이스만 provider: "gemini"를 명시하세요.
 
 Args:
   - specs (array): List of image specs, each with: prompt, asset_type, provider ("openai" | "gemini", optional — auto-selected by asset_type if omitted), model (optional)
@@ -380,7 +391,7 @@ Returns:
         specs: z.array(z.object({
           prompt: z.string().min(1).max(4000).describe("Image description"),
           asset_type: z.enum(ASSET_TYPES).describe("Asset type"),
-          provider: z.enum(["openai", "gemini"]).optional().describe("AI provider (auto-selected by asset_type if omitted: background→gemini, others→openai)"),
+          provider: z.enum(["openai", "gemini"]).optional().describe("AI provider (auto-selected if omitted: 모든 타입 기본 openai. parallax 투명 레이어 같은 특수 케이스만 'gemini' 명시)"),
           model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default) | gpt-image-1 | gpt-image-1.5 (고디테일) | gpt-image-2 (4K·다국어 텍스트, 투명 배경 미지원)"),
           size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).optional().describe("Size (OpenAI only)"),
           quality: z.enum(["low", "medium", "high", "auto"]).optional().describe("Quality (default: medium)"),
@@ -522,9 +533,9 @@ Returns:
       title: "Generate Game Asset Image (Auto-select Provider)",
       description: `Generate a single game asset image, automatically selecting the AI provider based on asset_type.
 
-**기본 프로바이더 규칙 (provider 미지정 시 자동 선택):**
-- background → Gemini Imagen (넓은 배경 장면 생성에 강함)
-- character / sprite / icon / ui_element / tile / effect / logo / other → OpenAI GPT-Image-1 (투명 배경, 단일 오브젝트)
+**기본 프로바이더 규칙 (v2.0+):**
+- 모든 에셋 타입 기본 OpenAI (gpt-image-* 계열). 배경도 gpt-image-2 디테일이 우수.
+- 투명 레이어가 필수인 parallax mid/near 같은 특수 케이스만 provider: "gemini"를 명시하세요.
 
 provider 파라미터로 명시적으로 지정하면 기본값을 덮어씁니다.
 

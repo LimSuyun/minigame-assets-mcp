@@ -41,7 +41,6 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "axios": "^1.7.9",
     "express": "^4.21.2",

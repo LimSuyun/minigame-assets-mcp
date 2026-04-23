@@ -155,7 +155,7 @@ Args:
           // For SVG-based Sharp rendering we embed the font name heuristically
           const baseName = path.basename(params.font_path, path.extname(params.font_path));
           fontFamily = `"${baseName}", Arial, sans-serif`;
-          console.log(`[font] Using font: ${params.font_path}`);
+          console.error(`[font] Using font: ${params.font_path}`);
         }
 
         const chars = getCharSet(params.character_set);
@@ -165,7 +165,7 @@ Args:
         const sheetW = cols * charW;
         const sheetH = rows * charH;
 
-        console.log(`[font] Rendering ${charCount} characters (${cols}×${rows} grid, ${sheetW}×${sheetH}px)...`);
+        console.error(`[font] Rendering ${charCount} characters (${cols}×${rows} grid, ${sheetW}×${sheetH}px)...`);
 
         // Build the sheet: create a blank canvas then composite each character
         const sheetBuffer = await sharp({
@@ -186,7 +186,7 @@ Args:
         for (let batchStart = 0; batchStart < charCount; batchStart += BATCH_SIZE) {
           const batchEnd = Math.min(batchStart + BATCH_SIZE, charCount);
           if (params.character_set === "korean_basic" && batchStart % 1000 === 0) {
-            console.log(`[font] Progress: ${batchStart}/${charCount} characters rendered`);
+            console.error(`[font] Progress: ${batchStart}/${charCount} characters rendered`);
           }
 
           const composites: sharp.OverlayOptions[] = [];
@@ -222,7 +222,7 @@ Args:
           }
         }
 
-        console.log(`[font] Saving sprite sheet...`);
+        console.error(`[font] Saving sprite sheet...`);
 
         const sheetFileName = "bitmap_font_sheet.png";
         const configFileName = "bitmap_font_config.json";

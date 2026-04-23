@@ -3,11 +3,15 @@
  * Minigame Assets MCP Server
  *
  * Generates game assets using AI:
- * - Images: OpenAI DALL-E 3, Google Gemini Imagen 3
- * - Music:  Local model server (AudioCraft/MusicGen), Google Gemini Lyria
- * - Video:  Google Gemini Veo 2, OpenAI Sora
+ * - Images: OpenAI gpt-image-2 / gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini,
+ *           Google Gemini Imagen 4 (generate / fast / ultra)
+ * - Prompt refine: OpenAI GPT-5.4-nano (opt-in per tool via `refine_prompt`)
+ * - Vision QC: Gemini 2.5 Flash (sprite frame quality checks, asset_review visual pass)
+ * - Music:  Local AudioCraft / MusicGen / Stable Audio server (REST or Gradio)
+ * - Video:  Google Gemini Veo 3 / Veo 2, OpenAI Sora
  *
- * Game concept management for consistent asset style across all generators.
+ * Game concept management (CONCEPT.md + game-concept.json) for consistent
+ * asset style across all generators.
  */
 
 
@@ -15,6 +19,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve as resolvePath } from "node:path";
 
 import { registerConceptTools } from "./tools/concept.js";
 import { registerImageTools } from "./tools/image.js";
@@ -41,9 +48,15 @@ import { registerReviewTools } from "./tools/review.js";
 
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(
+  readFileSync(resolvePath(__dirname, "../package.json"), "utf-8")
+) as { version: string };
+const SERVER_VERSION = pkg.version;
+
 const server = new McpServer({
   name: "minigame-assets-mcp-server",
-  version: "1.0.0",
+  version: SERVER_VERSION,
 });
 
 // Register all tool groups
@@ -93,7 +106,7 @@ async function runHTTP(): Promise<void> {
   });
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", server: "minigame-assets-mcp-server", version: "1.0.0" });
+    res.json({ status: "ok", server: "minigame-assets-mcp-server", version: SERVER_VERSION });
   });
 
   const port = parseInt(process.env.PORT || "3456");
