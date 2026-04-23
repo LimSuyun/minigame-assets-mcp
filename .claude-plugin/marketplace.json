@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "minigame-assets-mcp",
+  "description": "Marketplace for the minigame-assets plugin — an AI-powered game asset generation workflow built on the minigame-assets-mcp server.",
+  "owner": {
+    "name": "LimSuyun"
+  },
+  "plugins": [
+    {
+      "name": "minigame-assets",
+      "description": "Generate game assets (sprites, characters, weapons, backgrounds, UI, logos, thumbnails, music, video) with a CONCEPT-first AI workflow. Bundles the minigame-assets-mcp server, 3 slash commands, and an auto-triggered workflow skill.",
+      "category": "development",
+      "source": "./plugins/minigame-assets",
+      "homepage": "https://github.com/LimSuyun/minigame-assets-mcp"
+    }
+  ]
+}

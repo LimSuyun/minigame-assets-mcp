@@ -1,0 +1,6 @@
+{
+  "minigame-assets": {
+    "command": "npx",
+    "args": ["-y", "minigame-assets-mcp"]
+  }
+}
