@@ -9,6 +9,17 @@
 
 ### ✨ Added
 
+- **플러그인 스킬 7종 분리** — 기존 단일 `minigame-assets-workflow` 스킬을
+  주제별 독립 스킬로 분리해 상황에 맞게 자동 트리거되도록 재구성.
+  각 스킬은 자체 `SKILL.md` + 명확한 trigger description 보유:
+  - `minigame-assets-workflow` — 생성 전체 파이프라인 (CONCEPT-first 유도, 오케스트레이터)
+  - `minigame-assets-status` — "지금 뭐 해야 해" 류 진행 상황 대시보드
+  - `minigame-assets-optimize` — 용량·포맷·display-size 매칭
+  - `minigame-assets-review` — `asset_review` / `asset_validate` / `asset_validate_consistency` 해설
+  - `minigame-assets-style-consistency` — Canon 시스템 + base_style_prompt + 스타일 레퍼런스 시트
+  - `minigame-assets-engine-load` — Phaser/Unity/Cocos/Godot 로딩 코드 스니펫
+  - `minigame-assets-cost` — 실제 단가표 (`cost-tracking.ts` 와 동기화) + 모델 선택 전략
+
 - **엔진 기반 자동 WebP/PNG 포맷 선택** — 신규 `src/utils/image-output.ts` 헬퍼가
   `cwd` 에서 게임 엔진(Phaser / Cocos Creator / Godot / Unity / unknown)을 감지해
   WebP 를 지원하는 엔진이면 WebP, 아니면 PNG 로 저장. Phaser 프로젝트 기준 캐릭터

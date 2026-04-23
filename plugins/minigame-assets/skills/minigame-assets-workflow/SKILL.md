@@ -74,3 +74,16 @@ asset_generate_character_base
 - 한국어/짧은 프롬프트만 있을 땐 각 도구의 `refine_prompt: true` 로 GPT-5.4-nano 확장 활성화
 - 이미지 생성에는 `OPENAI_API_KEY` (필수) / `GEMINI_API_KEY` (parallax·video 시 필요) 환경변수가 있어야 함
 - 컨셉 파일 경로는 `CONCEPT_FILE` (기본 `./game-concept.json`), `CONCEPT_MD_FILE` (기본 `./CONCEPT.md`) 환경변수로 오버라이드 가능
+
+## 주제별 세부 스킬
+
+이 워크플로 중 특정 주제가 나오면 해당 스킬이 자동으로 함께 트리거됩니다:
+
+| 질문/상황 | 트리거되는 스킬 |
+|----------|-------------|
+| "어디까지 했지?", "지금 뭐 해야 해" | `minigame-assets-status` (현재 상태 대시보드) |
+| "용량 줄이고 싶어", "WebP 쓸까?", "너무 커" | `minigame-assets-optimize` |
+| "품질 확인", "검증", "마젠타 잔류" | `minigame-assets-review` |
+| "스타일 일관성", "같은 캐릭터 유지" | `minigame-assets-style-consistency` |
+| "Phaser 로딩 코드", "Unity import" | `minigame-assets-engine-load` |
+| "비용 얼마야", "어떤 모델이 싸?" | `minigame-assets-cost` |
