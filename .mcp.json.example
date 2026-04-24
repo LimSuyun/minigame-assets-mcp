@@ -5,8 +5,7 @@
       "args": ["/absolute/path/to/minigame-assets-mcp/dist/index.js"],
       "env": {
         "OPENAI_API_KEY": "sk-...",
-        "GEMINI_API_KEY": "AIza...",
-        "ASSETS_OUTPUT_DIR": "./generated-assets",
+        "ASSETS_OUTPUT_DIR": "./.minigame-assets",
         "TRANSPORT": "stdio"
       }
     }
