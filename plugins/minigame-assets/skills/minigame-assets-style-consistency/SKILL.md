@@ -35,7 +35,7 @@ range, no photorealism.
 ```
 asset_register_canon
   asset_id: "hero_kim"
-  canonical_path: "generated-assets/characters/sprites/hero_kim/hero_kim_base.webp"
+  canonical_path: ".minigame-assets/characters/sprites/hero_kim/hero_kim_base.webp"
   role: "player_hero"
   description: "55yo Korean male shop owner, warm orange apron, round friendly face"
 ```

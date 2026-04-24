@@ -207,7 +207,7 @@ export function registerSpriteTools(server: McpServer): void {
 
 **Target Layer**: GameScene **Layer 2 (유닛)** — 플레이어/적/몬스터/NPC 공통. 자세한 레이어 매핑은 \`templates/docs/layer-system.md\` 참조.
 
-**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
+**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
 
 This creates the "master" character image that all action sprites will be derived from.

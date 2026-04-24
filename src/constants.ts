@@ -22,7 +22,7 @@ export const OPENAI_MODELS_NO_TRANSPARENT_BG: ReadonlyArray<typeof OPENAI_IMAGE_
 
 export const CHARACTER_LIMIT = 25000;
 
-export const DEFAULT_OUTPUT_DIR = process.env.ASSETS_OUTPUT_DIR || "./generated-assets";
+export const DEFAULT_OUTPUT_DIR = process.env.ASSETS_OUTPUT_DIR || "./.minigame-assets";
 export const DEFAULT_CONCEPT_FILE = process.env.CONCEPT_FILE || "./game-concept.json";
 export const DEFAULT_CONCEPT_MD_FILE = process.env.CONCEPT_MD_FILE || "./CONCEPT.md";
 export const DEFAULT_EXECUTION_PLAN_FILE = "./EXECUTION-PLAN.md";

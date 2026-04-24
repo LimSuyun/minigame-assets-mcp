@@ -81,7 +81,7 @@ asset-plan.json의 priority 순서대로 생성합니다.
 ### 품질 검토 (권장)
 ```
 asset_review          ← 구조·크로마 잔류·비주얼 AI 종합 검토
-  target_path: <generated-assets 또는 특정 캐릭터 폴더>
+  target_path: <.minigame-assets 또는 특정 캐릭터 폴더>
   mode: "standard"    (quick / standard / deep)
   output_report_path: "./reviews/project_review.md"
 ```

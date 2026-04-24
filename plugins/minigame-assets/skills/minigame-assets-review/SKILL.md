@@ -12,7 +12,7 @@ version: 2.1.0
 
 ```
 asset_review
-  target_path: "generated-assets/sprites/hero"
+  target_path: ".minigame-assets/sprites/hero"
   mode: "standard"          # quick / standard / deep
   character_hint: "chibi boy with red tunic"
   output_report_path: "./reviews/hero_review.md"
@@ -35,7 +35,7 @@ asset_review
 
 ```
 asset_validate
-  target_dir: "generated-assets"
+  target_dir: ".minigame-assets"
 ```
 
 하드 룰 검사 (AI 미사용, 즉시 반환):
@@ -49,8 +49,8 @@ asset_validate
 여러 에셋 간 아트 스타일 일관성 검증 (Gemini Vision):
 ```
 asset_validate_consistency
-  asset_paths: ["generated-assets/sprites/hero_base.webp",
-                "generated-assets/sprites/enemy_base.webp"]
+  asset_paths: [".minigame-assets/sprites/hero_base.webp",
+                ".minigame-assets/sprites/enemy_base.webp"]
 ```
 
 스타일 불일치 감지 시 `minigame-assets-style-consistency` 스킬 참조.
@@ -58,7 +58,7 @@ asset_validate_consistency
 ## 4. asset_list_missing — 누락 탐지
 
 ```
-asset_list_missing  output_dir: "./generated-assets"
+asset_list_missing  output_dir: "./.minigame-assets"
 ```
 
 CONCEPT.md 의 에셋 목록 대비 생성되지 않은 항목 반환.

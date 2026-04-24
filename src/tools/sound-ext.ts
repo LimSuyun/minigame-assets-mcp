@@ -60,7 +60,7 @@ Args:
   - duration_sec: Length of the track in seconds (30-120, default 60)
   - loop_point_sec: Optional loop start point in seconds
   - style_description: Optional additional style description for the prompt
-  - output_dir: Output directory (default: ASSETS_OUTPUT_DIR env or ./generated-assets)
+  - output_dir: Output directory (default: ASSETS_OUTPUT_DIR env or ./.minigame-assets)
 
 Returns:
   Paths to the generated audio file and its metadata JSON.`,

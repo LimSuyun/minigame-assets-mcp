@@ -14,7 +14,7 @@ npx tsx scripts/experiments/<script>.ts
 사전 조건:
 
 - `OPENAI_API_KEY` / `GEMINI_API_KEY` 환경 변수
-- 일부 스크립트는 `generated-assets/` 하위에 입력 이미지가 있어야 동작 — 각 파일 상단 주석 참고
+- 일부 스크립트는 `.minigame-assets/` 하위에 입력 이미지가 있어야 동작 — 각 파일 상단 주석 참고
 - 산출물은 `scripts/experiments/out/` 또는 각 스크립트가 지정한 경로에 저장됩니다
 
 ## 스크립트 용도

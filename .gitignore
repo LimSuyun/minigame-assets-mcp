@@ -17,8 +17,15 @@ dist/
 # Local Claude settings (contains local paths and permissions)
 .claude/settings.local.json
 
-# Generated assets
+# Master assets (원본 고해상도 — 배포본은 별도 경로)
+.minigame-assets/
+# 예외: CONCEPT/PLAN 문서와 배포 매니페스트는 팀 공유용으로 git 포함
+!.minigame-assets/*.md
+!.minigame-assets/deploy-map.json
+
+# Legacy (v2.2 이하에서 쓰던 경로 — 있으면 정리 대상)
 generated-assets/
+created_assets/
 test-output/
 output/
 

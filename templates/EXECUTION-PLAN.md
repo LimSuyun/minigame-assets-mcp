@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |------|------|
 | **게임 엔진** | Cocos Creator / Unity / Phaser / Godot / unknown |
-| **에셋 출력 경로** | `./generated-assets` |
+| **에셋 출력 경로** | `./.minigame-assets` |
 | **Export 포맷** | individual, phaser, cocos, unity |
 | **플랫폼** | Mobile |
 
@@ -79,7 +79,7 @@
 ### Step 5. 품질 검토
 
 - [ ] `asset_review` — 생성된 에셋 종합 검토
-  - target_path: "generated-assets/sprites" 또는 특정 캐릭터 폴더
+  - target_path: ".minigame-assets/sprites" 또는 특정 캐릭터 폴더
   - mode: "standard" (quick: 구조만 / standard: +비주얼 샘플 / deep: 전수 비주얼)
   - output_report_path: "./reviews/review.md"
 

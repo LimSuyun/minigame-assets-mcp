@@ -287,8 +287,8 @@ export function registerReviewTools(server: McpServer): void {
 - \`deep\`: quick + 전수 비주얼 (비용 높음, 대량 검토 시 주의)
 
 **사용 예**:
-- 한 캐릭터 검토: target_path: "generated-assets/sprites/hero", mode: "standard"
-- 전체 프로젝트 검토: target_path: "generated-assets", mode: "quick"
+- 한 캐릭터 검토: target_path: ".minigame-assets/sprites/hero", mode: "standard"
+- 전체 프로젝트 검토: target_path: ".minigame-assets", mode: "quick"
 - 단일 파일 심층: target_path: "some.png", mode: "deep"
 
 Args:

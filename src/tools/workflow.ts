@@ -258,7 +258,7 @@ Args:
   - concept_md (string, optional): CONCEPT.md 경로 (기본: ./CONCEPT.md)
   - project_path (string, optional): 게임 프로젝트 경로 (엔진 감지용)
   - output_file (string, optional): EXECUTION-PLAN.md 저장 경로 (기본: ./EXECUTION-PLAN.md)
-  - output_dir (string, optional): 에셋 출력 디렉토리 (기본: ./generated-assets)
+  - output_dir (string, optional): 에셋 출력 디렉토리 (기본: ./.minigame-assets)
 
 Returns:
   생성된 EXECUTION-PLAN.md 경로와 파싱된 에셋 목록 요약.`,

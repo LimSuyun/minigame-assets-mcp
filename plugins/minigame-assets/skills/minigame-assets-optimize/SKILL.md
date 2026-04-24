@@ -63,7 +63,7 @@ CONCEPT 변경 없이 기존 PNG 를 WebP 로 한꺼번에 변환하려면 Bash 
 
 ```bash
 # Phaser 프로젝트라면
-find generated-assets -name "*.png" -exec sh -c '
+find .minigame-assets -name "*.png" -exec sh -c '
   sharp="$(npm exec -c "which sharp" 2>/dev/null)"
   # 또는 cwebp 사용
   cwebp -q 90 "$1" -o "${1%.png}.webp" && rm "$1"

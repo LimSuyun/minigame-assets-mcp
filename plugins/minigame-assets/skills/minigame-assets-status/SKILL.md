@@ -26,7 +26,7 @@ asset_analyze_project
 ### Step 2: 생성된 에셋 목록
 ```
 asset_list_assets
-  output_dir: "./generated-assets"
+  output_dir: "./.minigame-assets"
   asset_type: "all"
   limit: 200
 ```
@@ -36,7 +36,7 @@ asset_list_assets
 
 ### Step 3: 누락 에셋
 ```
-asset_list_missing  output_dir: "./generated-assets"
+asset_list_missing  output_dir: "./.minigame-assets"
 ```
 
 우선순위 높은 3-5개 항목만 강조.
@@ -86,7 +86,7 @@ asset_scan_display_sizes  project_path: "."
   1. asset_generate_sprite_sheet  character_name: "boss_dragon"
      actions: ["hurt", "die"]  base_character_path: "...boss_dragon_base.webp"
   2. asset_scan_display_sizes     (코드 있으면 실행)
-  3. asset_review mode: "standard"  target_path: "generated-assets/sprites"
+  3. asset_review mode: "standard"  target_path: ".minigame-assets/sprites"
      (생성 완료된 에셋 품질 확인)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

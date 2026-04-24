@@ -58,7 +58,7 @@ version: 2.1.0
 
 생성 후:
 ```
-asset_list_assets  output_dir: "./generated-assets"
+asset_list_assets  output_dir: "./.minigame-assets"
 ```
 각 에셋의 `metadata.est_cost_usd` 합산하면 프로젝트 누적 비용.
 

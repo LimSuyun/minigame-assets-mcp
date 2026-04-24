@@ -32,7 +32,7 @@ scan_asset_refs: true
 `asset_list_assets` 도구를 호출합니다.
 
 ```
-output_dir: (프로젝트의 에셋 출력 경로, 기본: ./generated-assets)
+output_dir: (프로젝트의 에셋 출력 경로, 기본: ./.minigame-assets)
 ```
 
 반환값에서 asset_type별로 집계:

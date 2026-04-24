@@ -60,7 +60,7 @@ function detectThreePath(rootPath: string): ThreePathResult {
   // asset_size_spec.json 감지
   const sizeSpecPaths = [
     path.join(rootPath, "asset_size_spec.json"),
-    path.join(rootPath, "generated-assets", "asset_size_spec.json"),
+    path.join(rootPath, ".minigame-assets", "asset_size_spec.json"),
   ];
   const hasSizeSpec = sizeSpecPaths.some((p) => fs.existsSync(p));
 
@@ -75,7 +75,7 @@ function detectThreePath(rootPath: string): ThreePathResult {
   let canonCount = 0;
   const canonRegistryPaths = [
     path.join(rootPath, "canon", "canon_registry.json"),
-    path.join(rootPath, "generated-assets", "canon", "canon_registry.json"),
+    path.join(rootPath, ".minigame-assets", "canon", "canon_registry.json"),
   ];
   for (const crPath of canonRegistryPaths) {
     if (fs.existsSync(crPath)) {
@@ -87,10 +87,10 @@ function detectThreePath(rootPath: string): ThreePathResult {
     }
   }
 
-  // generated-assets 에셋 수 집계
+  // .minigame-assets 에셋 수 집계
   let generatedAssetCount = 0;
   const registryPaths = [
-    path.join(rootPath, "generated-assets", "asset_registry.json"),
+    path.join(rootPath, ".minigame-assets", "asset_registry.json"),
     path.join(rootPath, "asset_registry.json"),
   ];
   for (const rPath of registryPaths) {

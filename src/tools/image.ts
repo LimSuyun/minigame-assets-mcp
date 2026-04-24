@@ -128,7 +128,7 @@ export function registerImageTools(server: McpServer): void {
 - 중간 품질이 필요하면 model: "gpt-image-1.5"
 ※ 캐릭터/썸네일/로딩·로비 화면 등 특수 목적 도구는 내부적으로 gpt-image-2를 기본값으로 사용합니다.
 
-**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
+**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
 
 Saves the generated image to the assets directory and returns the file path along with the inline image data.
@@ -140,7 +140,7 @@ Args:
   - quality (string, optional): "auto" (default) | "low" | "medium" | "high"
   - use_concept (boolean, optional): Whether to inject the current game concept into the prompt (default: true)
   - concept_file (string, optional): Path to game concept file (default: ./game-concept.json)
-  - output_dir (string, optional): Output directory for the asset (default: ./generated-assets)
+  - output_dir (string, optional): Output directory for the asset (default: ./.minigame-assets)
 
 Returns:
   File path of the saved image, revised prompt from OpenAI, and asset metadata.`,
@@ -262,7 +262,7 @@ Returns:
       title: "Generate Game Asset Image (Gemini Imagen 4)",
       description: `Generate a game asset image using Google Gemini Imagen 4.
 
-**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
+**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
 
 Saves the generated image to the assets directory and returns the file path along with the inline image data.
@@ -274,7 +274,7 @@ Args:
   - negative_prompt (string, optional): What to avoid in the image
   - use_concept (boolean, optional): Whether to inject the current game concept into the prompt (default: true)
   - concept_file (string, optional): Path to game concept file (default: ./game-concept.json)
-  - output_dir (string, optional): Output directory for the asset (default: ./generated-assets)
+  - output_dir (string, optional): Output directory for the asset (default: ./.minigame-assets)
 
 Returns:
   File path of the saved image and asset metadata.`,
@@ -372,8 +372,8 @@ Returns:
       title: "Batch Generate Game Asset Images",
       description: `Generate multiple game asset images in one call based on a list of specifications.
 
-**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
-파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로(created_assets/prompts/ 하위 JSON)를 읽고
+**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
+파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로(.minigame-assets/prompts/ 하위 JSON)를 읽고
 추가 질문 없이 바로 생성을 진행하세요. 한 번 호출에 최대 10개까지 생성 가능합니다.
 
 Useful for generating a complete set of initial assets for a game (characters, backgrounds, UI elements, etc.).
@@ -552,14 +552,14 @@ Returns:
 
 provider 파라미터로 명시적으로 지정하면 기본값을 덮어씁니다.
 
-**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 created_assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
+**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마를 읽고 추가 질문 없이 바로 생성을 진행하세요.
 
 Args:
   - prompt (string): Description of the image to generate
   - asset_type (string): Type of game asset — determines default provider
   - provider (string, optional): Override provider: "openai" | "gemini"
-  - output_dir (string, optional): Output directory (default: ./generated-assets)
+  - output_dir (string, optional): Output directory (default: ./.minigame-assets)
   - use_concept (boolean, optional): Inject game-concept.json style hint (default: true)
 
 Returns:

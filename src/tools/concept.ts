@@ -277,7 +277,7 @@ Returns:
 
 Args:
   - asset_type (string, optional): Filter by type: "image", "music", "video", or "all" (default: "all")
-  - output_dir (string, optional): Directory where assets are stored (default: ./generated-assets)
+  - output_dir (string, optional): Directory where assets are stored (default: ./.minigame-assets)
   - limit (number, optional): Maximum number of assets to return (default: 50)
   - offset (number, optional): Number of assets to skip (default: 0)
 
