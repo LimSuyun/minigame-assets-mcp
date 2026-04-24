@@ -46,6 +46,7 @@ import { registerMarketingExtTools } from "./tools/marketing-ext.js";
 import { registerTutorialTools } from "./tools/tutorial.js";
 import { registerFontTools } from "./tools/font.js";
 import { registerReviewTools } from "./tools/review.js";
+import { registerDeployTools } from "./tools/deploy.js";
 
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ function createMcpServer(): McpServer {
   registerTutorialTools(server);
   registerFontTools(server);
   registerReviewTools(server);
+  registerDeployTools(server);
 
   return server;
 }

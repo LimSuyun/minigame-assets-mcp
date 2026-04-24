@@ -5,6 +5,69 @@
 포맷은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 따르고,
 버전은 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [2.3.0] - 2026-04-24
+
+### ✨ Added — 매니페스트 기반 배포 워크플로 (Phase 2)
+
+- **`src/utils/deploy-map.ts`** 신설 — `.minigame-assets/deploy-map.json` 을
+  진실의 원천(source of truth)으로 사용하는 배포 매니페스트. 엔트리별로
+  `master_hash` / `approved_hash` / `deploy_targets[]` 를 보관해 "확정된 마스터가
+  어떤 코드 경로에 어떤 사이즈로 복사됐는지" 를 자체 문서화.
+- **신규 도구 3종 (`src/tools/deploy.ts`)**:
+  - `asset_approve { entries, output_dir? }` — 지정 엔트리(또는 `"all"`)를
+    배포 승인. 현재 `master_hash` 를 `approved_hash` 로 고정.
+  - `asset_revoke { entries }` — 승인 해제(엔트리는 이력 보존 차원에서 유지).
+  - `asset_deploy { project_root?, dry_run?, force?, entries? }` — 승인된
+    마스터를 sharp 로 리사이즈(`width × height × fit × format`) 해 코드 경로에
+    복사. 바이트 동일하면 재작성 스킵(idempotent). `master_hash ≠ approved_hash`
+    면 `needs_reapproval` 로 스킵, `asset_approve` 재호출 유도.
+- **생성 시 자동 등록**: `saveAssetToRegistry` 에 매니페스트 upsert 훅 삽입.
+  모든 `asset_generate_*` 결과가 `approved: false` 로 매니페스트에 자동 등록됨 —
+  사용자는 검토 후 `asset_approve` 만 호출하면 배포 파이프라인에 편입.
+- **`asset_scan_display_sizes` URL 추출 확장**: 기존 display 사이즈 추론에 더해
+  Phaser `load.image/spritesheet/atlas`, Cocos `resources.load`, Godot
+  `preload/load` 패턴에서 **import 경로** 도 함께 추출해 `asset_urls[]` 로 반환.
+  `asset_deploy` 의 `deploy_targets[].path` 힌트로 사용 가능.
+
+### ⚠️ Breaking Changes
+
+- **기본 출력 폴더 변경**: `./generated-assets` → **`./.minigame-assets`** (dot-prefix).
+  `DEFAULT_OUTPUT_DIR`, 모든 도구의 `output_dir` 기본값, project-detector 의
+  `asset_size_spec.json` / `asset_registry.json` / `canon_registry.json` 조회 경로,
+  `project-scanner` 의 출력 경로 전부 `.minigame-assets/` 로 통일.
+- **하드코드 경로 일원화**: 이전에 `created_assets/prompts/CONCEPT.md` 로 하드코드되어
+  있던 image/sprite 도구 설명 문자열을 `.minigame-assets/prompts/CONCEPT.md` 로 정정.
+  과거부터 존재하던 `generated-assets/` vs `created_assets/` 이원화를 해소.
+- **`.gitignore` 템플릿 업데이트**: `.minigame-assets/` 추가, `!.minigame-assets/*.md`
+  + `!.minigame-assets/deploy-map.json` 예외 규칙으로 CONCEPT/PLAN/배포 매니페스트만
+  git 포함. Legacy 경로(`generated-assets/`, `created_assets/`) 는 호환을 위해
+  ignore 목록에 유지.
+
+### 🏗 Architecture
+
+- **마스터(원본) / 배포본(리사이즈) 분리 기반 구축**. `.minigame-assets/` 는
+  고해상도 마스터만 보관하고, 실제 게임 코드가 쓰는 리사이즈 사본은 Phase 2에서
+  신설할 `asset_deploy` 도구가 코드 경로로 복사하는 구조. 이번 릴리스는 Phase 1
+  (경로 통합) 에 해당하며, Phase 2 (매니페스트 + approve/deploy/revoke 도구) 는
+  후속 릴리스 예정.
+
+### 📚 Documentation
+
+- 루트 README: 출력 구조 섹션에 "마스터/배포본 분리" 설명 추가.
+- `.env.example`: `ASSETS_OUTPUT_DIR` 주석을 "마스터 경로, gitignore 권장" 으로 명시.
+- 플러그인 스킬 7종·슬래시 커맨드 3종·EXECUTION-PLAN 템플릿 모두 새 경로로 일괄 갱신.
+
+### 🔒 Security
+
+- `GEMINI_API_KEY` 를 `.env.example` 및 `.env` 에서 제거 (현재 기본 라우팅은 100%
+  OpenAI, Gemini 는 사용자가 provider 를 명시한 경우에만 호출되는 선택적 경로).
+- 루트 README 에 **방법 3 — OS 시크릿 저장소 (보안 강화)** 섹션 신설. macOS
+  Keychain (`security find-generic-password`) 으로 API 키를 암호화 보관하고
+  `~/.claude.json` MCP 래퍼에서 런타임에만 주입하는 패턴 제공. Linux libsecret
+  가이드 포함, Windows 는 외부 시크릿 매니저 포인터.
+- 설치 섹션의 추천 배지를 방법 2(플러그인 + shell env) 에서 **방법 1(`claude mcp add`)**
+  로 이동 — `~/.claude.json` 은 `600` 권한이라 shell rc 평문 저장보다 유출 표면이 작음.
+
 ## [2.2.0] - 2026-04-23
 
 ### ✨ Added

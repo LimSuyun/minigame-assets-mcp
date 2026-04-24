@@ -44,6 +44,8 @@ export interface DisplaySizeDetection {
   scale_factor?: number;
   /** "file:line" occurrences that contributed to this detection. */
   sources: string[];
+  /** 코드에서 감지된 import/load URL — asset_deploy 의 target path 힌트. */
+  asset_urls?: string[];
   /**
    * Suggested generation dimension — typically max(display_w, display_h) ×
    * scale-safety-factor, rounded up to nearest power-of-2 or multiple of 64.
@@ -465,7 +467,7 @@ export function getEngineRecommendations(
 } {
   const spriteDir = assetDirs.find((d) => d.purpose === "sprites");
   const generalDir = assetDirs.find((d) => d.purpose === "general");
-  const baseOutputDir = spriteDir?.path || generalDir?.path || "./generated-assets";
+  const baseOutputDir = spriteDir?.path || generalDir?.path || "./.minigame-assets";
 
   switch (engine) {
     case "cocos_creator":
@@ -515,7 +517,7 @@ export function getEngineRecommendations(
     default:
       return {
         export_formats: ["individual"],
-        output_dir: "./generated-assets",
+        output_dir: "./.minigame-assets",
         image_provider: "openai",
         notes: ["엔진을 감지할 수 없어 개별 PNG로 생성합니다"],
       };
@@ -561,6 +563,56 @@ const PHASER_SIZE_RULES: SizeRegexRule[] = [
     scaleGroup: 2,
   },
 ];
+
+/** URL-추출 rule: key → import path. 사이즈 정보 없음. */
+interface UrlRegexRule {
+  regex: RegExp;
+  keyGroup: number;
+  urlGroup: number;
+}
+
+const PHASER_URL_RULES: UrlRegexRule[] = [
+  // this.load.image('key', 'url'), this.load.spritesheet('key', 'url', ...)
+  {
+    regex: /\.load\.(?:image|spritesheet)\s*\(\s*['"]([A-Za-z0-9_\-]+)['"]\s*,\s*['"]([^'"]+)['"]/g,
+    keyGroup: 1,
+    urlGroup: 2,
+  },
+  // this.load.atlas('key', 'imgUrl', 'jsonUrl')  — 이미지 URL 만 수집
+  {
+    regex: /\.load\.atlas\s*\(\s*['"]([A-Za-z0-9_\-]+)['"]\s*,\s*['"]([^'"]+)['"]/g,
+    keyGroup: 1,
+    urlGroup: 2,
+  },
+];
+
+const COCOS_URL_RULES: UrlRegexRule[] = [
+  // resources.load('path/to/asset', SpriteFrame, ...) — key 와 path 동일
+  {
+    regex: /resources\.load\s*\(\s*['"]([A-Za-z0-9_\-\/]+)['"]/g,
+    keyGroup: 1,
+    urlGroup: 1,
+  },
+];
+
+const GODOT_URL_RULES: UrlRegexRule[] = [
+  // preload("res://assets/foo.png") / load("res://...")
+  {
+    regex: /(?:preload|load)\s*\(\s*['"](res:\/\/[^'"]+)['"]/g,
+    keyGroup: 1,
+    urlGroup: 1,
+  },
+];
+
+function urlRulesForEngine(engine: GameEngine): UrlRegexRule[] {
+  switch (engine) {
+    case "phaser": return PHASER_URL_RULES;
+    case "cocos_creator": return COCOS_URL_RULES;
+    case "godot": return GODOT_URL_RULES;
+    case "unity": return [];
+    default: return [...PHASER_URL_RULES, ...COCOS_URL_RULES, ...GODOT_URL_RULES];
+  }
+}
 
 const UNITY_SIZE_RULES: SizeRegexRule[] = [
   // rectTransform.sizeDelta = new Vector2(64, 64)  (asset key unknown at this site — skip)
@@ -645,6 +697,7 @@ export function scanDisplaySizes(
   const targetExts = extensions[engine];
   const sourceFiles = allFiles.filter((f) => targetExts.some((ext) => f.endsWith(ext)));
   const rules = rulesForEngine(engine);
+  const urlRules = urlRulesForEngine(engine);
 
   // Merge multiple observations per key
   const byKey = new Map<string, DisplaySizeDetection>();
@@ -681,6 +734,24 @@ export function scanDisplaySizes(
           if (!entry.scale_factor || s > entry.scale_factor) entry.scale_factor = s;
         }
         if (!entry.sources.includes(source)) entry.sources.push(source);
+      }
+    }
+
+    // URL 추출 패스
+    for (const rule of urlRules) {
+      rule.regex.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = rule.regex.exec(content)) !== null) {
+        const key = match[rule.keyGroup];
+        const url = match[rule.urlGroup];
+        if (!key || !url) continue;
+        let entry = byKey.get(key);
+        if (!entry) {
+          entry = { asset_key: key, sources: [] };
+          byKey.set(key, entry);
+        }
+        if (!entry.asset_urls) entry.asset_urls = [];
+        if (!entry.asset_urls.includes(url)) entry.asset_urls.push(url);
       }
     }
   }

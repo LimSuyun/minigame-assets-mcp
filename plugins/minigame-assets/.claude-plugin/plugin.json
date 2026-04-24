@@ -1,7 +1,7 @@
 {
   "name": "minigame-assets",
   "description": "Generate game assets (sprites, characters, weapons, backgrounds, UI, logos, thumbnails, music, video) with a CONCEPT-first AI workflow. Wraps the minigame-assets-mcp server and adds slash commands + an auto-triggered workflow skill.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "author": {
     "name": "LimSuyun"
   },

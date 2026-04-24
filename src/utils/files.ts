@@ -4,6 +4,7 @@ import * as https from "https";
 import * as http from "http";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import type { GeneratedAsset, AssetRegistry } from "../types.js";
+import { loadDeployMap, saveDeployMap, upsertEntry } from "./deploy-map.js";
 
 export function ensureDir(dirPath: string): void {
   if (!fs.existsSync(dirPath)) {
@@ -75,6 +76,27 @@ export function saveAssetToRegistry(
   registry.last_updated = new Date().toISOString();
   const registryPath = getAssetRegistryPath(outputDir);
   fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+
+  // Deploy 매니페스트에도 자동 upsert (approved=false 로 등록 — 사용자가 asset_approve 로 확정)
+  const masterPath = (asset as { file_path?: string }).file_path;
+  if (typeof masterPath === "string" && masterPath.length > 0) {
+    try {
+      const masterAbs = path.isAbsolute(masterPath)
+        ? masterPath
+        : path.resolve(outputDir, masterPath);
+      if (fs.existsSync(masterAbs)) {
+        const map = loadDeployMap(outputDir);
+        const meta = asset as { width?: number; height?: number };
+        upsertEntry(map, outputDir, masterAbs, {
+          width: meta.width ?? null,
+          height: meta.height ?? null,
+        });
+        saveDeployMap(outputDir, map);
+      }
+    } catch {
+      // 매니페스트 업데이트 실패가 생성 자체를 막으면 안 됨 — silent
+    }
+  }
 }
 
 export function generateAssetId(): string {

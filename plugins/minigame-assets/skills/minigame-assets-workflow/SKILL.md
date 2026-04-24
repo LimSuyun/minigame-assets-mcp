@@ -59,6 +59,31 @@ asset_generate_character_base
 | 6 | `asset_generate_screen_background` / `_loading_screen` / `_lobby_screen` | gpt-image-2 | parallax 레이어는 Gemini |
 | 7 | `asset_generate_app_logo`, `asset_plan_thumbnail` → `asset_generate_thumbnail` | — | 마케팅 |
 | 8 | `asset_review`, `asset_validate`, `asset_list_missing`, `asset_generate_atlas_json` | — | 품질 검토 + Atlas |
+| 9 | `asset_approve` → `asset_deploy` | — | 승인된 마스터만 코드 경로로 리사이즈 복사 |
+
+## Step 9: 승인 → 배포 (마스터 ↔ 배포본 분리)
+
+생성된 모든 에셋은 `.minigame-assets/` 의 **마스터(원본)** 으로만 존재합니다. 실제 게임 코드가 쓰는 리사이즈본은 **명시적 승인 후** `asset_deploy` 가 코드 경로로 복사합니다. 배포본에 기초 디자인 파일이 그대로 올라가는 걸 방지하는 구조.
+
+**모든 `asset_generate_*` 결과는 자동으로 `.minigame-assets/deploy-map.json` 에 `approved: false` 로 등록됩니다.** 사용자가 해야 할 것:
+
+1. `asset_scan_display_sizes project_path: "."` — 코드에서 기대되는 크기·경로 스캔 (`asset_urls` 포함)
+2. `deploy-map.json` 의 각 엔트리에 `deploy_targets: [{ path, width, height, fit, format }]` 채우기 (Read → Edit)
+3. 품질 확인(`asset_review`) 후 승인:
+   ```
+   asset_approve  entries: ["characters/char_female.png", "weapons/sword.png"]
+   # 또는
+   asset_approve  entries: "all"
+   ```
+4. 배포:
+   ```
+   asset_deploy  project_root: "."   # dry_run: true 먼저 권장
+   ```
+   - 마스터가 이후 재생성되면 `master_hash ≠ approved_hash` 로 `needs_reapproval` 경고 → `asset_approve` 재호출 필요
+   - 동일 바이트가 이미 있으면 재작성 스킵 (`unchanged`) — 빌드 친화적
+   - `force: true` 로 승인 게이트를 무시할 수 있지만, 불안정한 중간본이 코드에 섞일 수 있어 테스트용으로만 사용
+
+**배포 결과물은 git 포함, 마스터는 gitignore** — `.gitignore` 템플릿이 이미 이 구조를 따릅니다 (`.minigame-assets/` 제외 + `deploy-map.json`·`*.md` 는 예외로 포함).
 
 ## 명시적 진입 슬래시 커맨드
 

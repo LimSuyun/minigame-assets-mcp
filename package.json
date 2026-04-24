@@ -1,6 +1,6 @@
 {
   "name": "minigame-assets-mcp",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "MCP server for generating game assets using AI (images, sprites, weapons, backgrounds, logos, thumbnails, music, video). gpt-image-2 pipeline, cost/latency telemetry, stateful HTTP sessions, Phaser layer mapping, quality review.",
   "type": "module",
   "main": "dist/index.js",
