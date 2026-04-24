@@ -13,6 +13,18 @@ import {
 import type { GameEngine } from "../utils/project-scanner.js";
 import type { GameDesign, CanonRegistry } from "../types.js";
 
+/**
+ * v3: 설계 문서를 `.minigame-assets/` 하위에서 우선 찾고, 없으면 프로젝트 루트에서 fallback.
+ * v2.x 프로젝트 호환을 위해 루트 경로도 함께 검사한다.
+ */
+function findProjectFile(rootPath: string, fileName: string): string | null {
+  const candidates = [
+    path.join(rootPath, ".minigame-assets", fileName),
+    path.join(rootPath, fileName),
+  ];
+  return candidates.find((p) => fs.existsSync(p)) ?? null;
+}
+
 // ─── 3-Path 감지 헬퍼 ─────────────────────────────────────────────────────────
 
 interface ThreePathResult {
@@ -30,15 +42,15 @@ interface ThreePathResult {
 }
 
 function detectThreePath(rootPath: string): ThreePathResult {
-  // GAME_DESIGN.json 감지
-  const gameDesignPath = path.join(rootPath, "GAME_DESIGN.json");
+  // GAME_DESIGN.json 감지 (.minigame-assets/ 우선, 루트 fallback)
+  const gameDesignPath = findProjectFile(rootPath, "GAME_DESIGN.json");
   let hasGameDesign = false;
   let gameDesignValid = false;
   const missingFields: string[] = [];
   let gameName: string | undefined;
   let preset: string | undefined;
 
-  if (fs.existsSync(gameDesignPath)) {
+  if (gameDesignPath) {
     hasGameDesign = true;
     try {
       const design = JSON.parse(fs.readFileSync(gameDesignPath, "utf-8")) as GameDesign;
@@ -53,23 +65,16 @@ function detectThreePath(rootPath: string): ThreePathResult {
     }
   }
 
-  // CONCEPT.md 감지
-  const conceptMdPath = path.join(rootPath, "CONCEPT.md");
-  const hasConceptMd = fs.existsSync(conceptMdPath);
+  // CONCEPT.md 감지 (.minigame-assets/ 우선, 루트 fallback)
+  const hasConceptMd = findProjectFile(rootPath, "CONCEPT.md") !== null;
 
-  // asset_size_spec.json 감지
-  const sizeSpecPaths = [
-    path.join(rootPath, "asset_size_spec.json"),
-    path.join(rootPath, ".minigame-assets", "asset_size_spec.json"),
-  ];
-  const hasSizeSpec = sizeSpecPaths.some((p) => fs.existsSync(p));
+  // asset_size_spec.json 감지 (.minigame-assets/ 우선, 루트 fallback)
+  const hasSizeSpec = findProjectFile(rootPath, "asset_size_spec.json") !== null;
 
-  // FULL_ASSET_PLAN.md 감지
-  const assetPlanPaths = [
-    path.join(rootPath, "FULL_ASSET_PLAN.md"),
-    path.join(rootPath, "EXECUTION-PLAN.md"),
-  ];
-  const hasAssetPlan = assetPlanPaths.some((p) => fs.existsSync(p));
+  // FULL_ASSET_PLAN.md / EXECUTION-PLAN.md 감지 (.minigame-assets/ 우선, 루트 fallback)
+  const hasAssetPlan =
+    findProjectFile(rootPath, "FULL_ASSET_PLAN.md") !== null ||
+    findProjectFile(rootPath, "EXECUTION-PLAN.md") !== null;
 
   // Canon 수 집계
   let canonCount = 0;
@@ -496,9 +501,10 @@ Returns:
         };
       }
 
-      // 1) 게임 컨셉 로드
+      // 1) 게임 컨셉 로드 (v3: .minigame-assets/ 우선, v2.x 호환 fallback)
       const conceptPaths = [
         params.concept_file,
+        path.join(rootPath, ".minigame-assets", "game-concept.json"),
         path.join(rootPath, "game-concept.json"),
         path.join(rootPath, "concept", "game-concept.json"),
         path.join(rootPath, "docs", "game-concept.json"),
