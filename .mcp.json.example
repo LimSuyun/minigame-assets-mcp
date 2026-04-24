@@ -5,7 +5,6 @@
       "args": ["/absolute/path/to/minigame-assets-mcp/dist/index.js"],
       "env": {
         "OPENAI_API_KEY": "sk-...",
-        "ASSETS_OUTPUT_DIR": "./.minigame-assets",
         "TRANSPORT": "stdio"
       }
     }

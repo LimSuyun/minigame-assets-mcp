@@ -39,32 +39,6 @@ export interface OpenAIImageResponse {
   }>;
 }
 
-export interface GeminiImagePrediction {
-  bytesBase64Encoded: string;
-  mimeType: string;
-}
-
-export interface GeminiImageResponse {
-  predictions: GeminiImagePrediction[];
-}
-
-export interface GeminiVideoOperation {
-  name: string;
-  done: boolean;
-  response?: {
-    generatedSamples: Array<{
-      video: {
-        uri: string;
-        encoding: string;
-      };
-    }>;
-  };
-  error?: {
-    code: number;
-    message: string;
-  };
-}
-
 export interface LocalMusicResponse {
   audio_url?: string;
   audio_data?: string;  // base64

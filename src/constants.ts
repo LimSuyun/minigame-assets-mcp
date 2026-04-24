@@ -1,5 +1,4 @@
 export const OPENAI_API_URL = "https://api.openai.com/v1";
-export const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 // ─── OpenAI 이미지 모델 ───────────────────────────────────────────────────────
 /** 기본 모델: gpt-image-1-mini (2D 미니게임 에셋 최적, 단순 치비 스타일, 저비용) */
@@ -23,14 +22,14 @@ export const OPENAI_MODELS_NO_TRANSPARENT_BG: ReadonlyArray<typeof OPENAI_IMAGE_
 export const CHARACTER_LIMIT = 25000;
 
 export const DEFAULT_OUTPUT_DIR = process.env.ASSETS_OUTPUT_DIR || "./.minigame-assets";
-export const DEFAULT_CONCEPT_FILE = process.env.CONCEPT_FILE || "./game-concept.json";
-export const DEFAULT_CONCEPT_MD_FILE = process.env.CONCEPT_MD_FILE || "./CONCEPT.md";
-export const DEFAULT_EXECUTION_PLAN_FILE = "./EXECUTION-PLAN.md";
+export const DEFAULT_CONCEPT_FILE = process.env.CONCEPT_FILE || "./.minigame-assets/game-concept.json";
+export const DEFAULT_CONCEPT_MD_FILE = process.env.CONCEPT_MD_FILE || "./.minigame-assets/CONCEPT.md";
+export const DEFAULT_EXECUTION_PLAN_FILE = "./.minigame-assets/EXECUTION-PLAN.md";
 export const LOCAL_MUSIC_URL = process.env.LOCAL_MUSIC_SERVER_URL || "http://localhost:7860";
 
 // ─── GAME_DESIGN.json (새 3-경로 입력 시스템) ──────────────────────────────────
-export const DEFAULT_GAME_DESIGN_FILE = process.env.GAME_DESIGN_FILE || "./GAME_DESIGN.json";
-export const DEFAULT_ASSET_SIZE_SPEC_FILE = process.env.ASSET_SIZE_SPEC_FILE || "./asset_size_spec.json";
+export const DEFAULT_GAME_DESIGN_FILE = process.env.GAME_DESIGN_FILE || "./.minigame-assets/GAME_DESIGN.json";
+export const DEFAULT_ASSET_SIZE_SPEC_FILE = process.env.ASSET_SIZE_SPEC_FILE || "./.minigame-assets/asset_size_spec.json";
 
 // ─── Canon (마스터 레퍼런스 에셋) ────────────────────────────────────────────
 export const DEFAULT_CANON_DIR = process.env.CANON_DIR || "canon";
@@ -72,9 +71,6 @@ export const CHIBI_STYLE_DEFAULT =
 
 // Supported image sizes for OpenAI
 export const OPENAI_IMAGE_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
-
-// Supported aspect ratios for Gemini Imagen
-export const GEMINI_ASPECT_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"] as const;
 
 // Asset type categories
 export const ASSET_TYPES = [

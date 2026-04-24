@@ -9,11 +9,11 @@
  *
  * 모드:
  *   - quick    : 구조·크로마 잔류만 (비 AI, 빠름)
- *   - standard : quick + 샘플링 비주얼 (Gemini Vision, 기본 30% 샘플링)
+ *   - standard : quick + 샘플링 비주얼 (OpenAI Vision, 기본 30% 샘플링)
  *   - deep     : quick + 전수 비주얼 (높은 비용)
  *
  * 기존 자원 재사용:
- *   - checkSpriteFrameQuality (services/vision-qc.ts) — Gemini Vision 기반 프레임 체크
+ *   - checkSpriteFrameQuality (services/vision-qc.ts) — OpenAI Vision 기반 프레임 체크
  *   - scanChromaResidue (utils/image-process.ts) — 크로마 픽셀 정량 측정
  */
 
@@ -278,7 +278,7 @@ export function registerReviewTools(server: McpServer): void {
 1. **구조**: 해상도, 파일 크기, 알파 채널 (투명 에셋 예상 시), PNG 무결성
 2. **크로마 잔류**: 투명 에셋에 남은 마젠타(#FF00FF) 픽셀 정량 측정 + 최대 클러스터 크기
    (외곽선 닫힌 포켓의 residue 검출 — 겨드랑이/다리 사이 등)
-3. **비주얼 AI 체크**: Gemini Vision으로 full-body·anatomy·single-character·배경 클린 평가
+3. **비주얼 AI 체크**: OpenAI Vision으로 full-body·anatomy·single-character·배경 클린 평가
    (character/sprite 타입만, 배경/썸네일은 스킵)
 
 **모드**:

@@ -3,12 +3,11 @@
  * Minigame Assets MCP Server
  *
  * Generates game assets using AI:
- * - Images: OpenAI gpt-image-2 / gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini,
- *           Google Gemini Imagen 4 (generate / fast / ultra)
+ * - Images: OpenAI gpt-image-2 / gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini
  * - Prompt refine: OpenAI GPT-5.4-nano (opt-in per tool via `refine_prompt`)
- * - Vision QC: Gemini 2.5 Flash (sprite frame quality checks, asset_review visual pass)
+ * - Vision QC: OpenAI gpt-4.1-mini vision (sprite frame quality, asset_review visual pass)
  * - Music:  Local AudioCraft / MusicGen / Stable Audio server (REST or Gradio)
- * - Video:  Google Gemini Veo 3 / Veo 2, OpenAI Sora
+ * - Video:  OpenAI Sora
  *
  * Game concept management (CONCEPT.md + game-concept.json) for consistent
  * asset style across all generators.

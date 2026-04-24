@@ -15,9 +15,7 @@ import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
-import { generateImageOpenAI } from "../services/openai.js";
-import { generateImageGemini } from "../services/gemini.js";
-import { editImageOpenAI } from "../services/openai.js";
+import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
 import {
   buildAssetPath,
   saveAssetToRegistry,

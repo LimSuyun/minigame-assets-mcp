@@ -287,7 +287,7 @@ export const ASSET_REQUIREMENT_MATRIX: AssetCategory[] = [
     required_for_mechanics: [],
     recommended_for_mechanics: [],
     only_for_mechanics: [],
-    tools: ["asset_generate_screen_background", "asset_generate_image_gemini"],
+    tools: ["asset_generate_screen_background"],
     stage: 3,
   },
   {

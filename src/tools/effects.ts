@@ -16,7 +16,6 @@ import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
-import { generateImageGemini } from "../services/gemini.js";
 import {
   buildAssetPath,
   saveAssetToRegistry,

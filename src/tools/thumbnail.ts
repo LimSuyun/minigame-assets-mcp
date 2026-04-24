@@ -13,7 +13,6 @@ import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
-import { generateImageGemini } from "../services/gemini.js";
 import { refineImagePrompt } from "../services/gpt5-prompt.js";
 import { writeOptimized } from "../utils/image-output.js";
 import {
@@ -267,8 +266,7 @@ Returns:
    - → 1536×1024 생성 후 1932×828 크롭
 
 2. **레퍼런스 없음 — 텍스트 프롬프트만** (품질 저하, 비권장):
-   - openai: gpt-image-2로 1792×1024 생성 → 1932×828 크롭
-   - gemini: Imagen 4 16:9 생성 → 1932×828 크롭
+   - gpt-image-2로 1792×1024 생성 → 1932×828 크롭
 
 3. **공통**: 게임 제목+태그라인을 SVG로 합성 (한글 정확 렌더링)
 
@@ -287,7 +285,6 @@ Args:
   - character_image_paths: 캐릭터 PNG 경로 배열 (레퍼런스용, 최대 4개) — **강력 권장**
   - background_image_path: 배경 이미지 경로 (레퍼런스용) — **강력 권장**
   - add_text: 제목+태그라인 SVG 텍스트 합성 여부 (기본: true)
-  - provider: 레퍼런스 없을 때 사용할 AI (openai / gemini, 기본: openai)
   - model: OpenAI 모델 (기본: gpt-image-2). "gpt-image-1", "gpt-image-1.5" 등으로 override 가능
   - quality: 생성 품질 (기본: high)
   - output_dir: 출력 경로
@@ -311,8 +308,6 @@ Returns:
           .describe("배경 이미지 파일 경로 (AI 레퍼런스용)"),
         add_text: z.boolean().default(true)
           .describe("제목+태그라인 SVG 텍스트 합성 여부"),
-        provider: z.enum(["openai", "gemini"]).default("openai")
-          .describe("레퍼런스 이미지 없을 때 사용할 AI 제공자"),
         model: z.string().optional()
           .describe("OpenAI 모델 override. 기본: gpt-image-2 (품질 최고). 대안: gpt-image-1, gpt-image-1-mini (빠름/저렴)"),
         refine_prompt: z.boolean().default(false)
@@ -404,13 +399,6 @@ Returns:
           generationMethod = `openai_${effectiveModel}_edit (${refPaths.length} refs)`;
           callKind = "edit";
           callSize = "1536x1024";
-        } else if (params.provider === "gemini") {
-          // ── Gemini Imagen 16:9 ──
-          const r = await generateImageGemini({ prompt, aspectRatio: "16:9" });
-          base64 = r.base64;
-          generationMethod = "gemini_imagen_16:9";
-          callModel = r.model;
-          callQuality = "high";
         } else {
           // ── OpenAI wide (기본: gpt-image-2) ──
           const r = await generateImageOpenAI({

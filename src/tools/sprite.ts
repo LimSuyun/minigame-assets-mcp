@@ -5,7 +5,7 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
-import { generateImageGemini, editImageGemini } from "../services/gemini.js";
+
 import {
   buildAssetPath,
   generateFileName,
@@ -58,7 +58,7 @@ export const ACTION_PROMPTS: Record<DefaultAction, string> = {
 /**
  * 일관성 유지 특화 편집 프롬프트 생성.
  * gpt_image_gen_mcp 방식: "Redraw this exact character..." 패턴.
- * 투명 배경 지시어 포함 (Gemini가 캐릭터 내부 흰색은 보존하고 배경만 제거).
+ * 투명 배경 지시어 포함 (흰 배경만 제거, 캐릭터 내부 흰색은 보존).
  */
 // 순백 배경 방식 — 배경은 순백(#FFFFFF), 캐릭터 내 순백 사용 금지
 const WHITE_BG_COLOR: [number, number, number] = [255, 255, 255];
@@ -207,11 +207,11 @@ export function registerSpriteTools(server: McpServer): void {
 
 **Target Layer**: GameScene **Layer 2 (유닛)** — 플레이어/적/몬스터/NPC 공통. 자세한 레이어 매핑은 \`templates/docs/layer-system.md\` 참조.
 
-**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/prompts/CONCEPT.md 파일이 있는지 확인하세요.
+**CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/CONCEPT.md 파일이 있는지 확인하세요.
 파일이 있으면 아트 스타일, 색상 팔레트, 존 테마, 프롬프트 파일 경로를 읽고 추가 질문 없이 바로 생성을 진행하세요.
 
 This creates the "master" character image that all action sprites will be derived from.
-After generating, use asset_generate_action_sprite or asset_generate_sprite_sheet
+After generating, use asset_generate_sprite_sheet
 to create action variants using gpt-image-2 image editing (preserving the original design).
 
 gpt-image-2는 투명 배경을 지원하지 않으므로 내부적으로 마젠타(#FF00FF) 배경 위에 생성 후
@@ -224,10 +224,9 @@ gpt-image-2는 투명 배경을 지원하지 않으므로 내부적으로 마젠
 Args:
   - character_name (string): Identifier for this character (used in file names)
   - description (string): Detailed character description (appearance, clothing, style, etc.)
-  - provider (string): "openai" (default, gpt-image-2) or "gemini" (Imagen 4)
   - model (string, optional): Model override. Defaults to "gpt-image-2". Alternatives: "gpt-image-1", "gpt-image-1-mini" (네이티브 투명), "gpt-image-1.5"
   - size (string, optional): For OpenAI — "1024x1024" (default), "1024x1792"
-  - aspect_ratio (string, optional): For Gemini — "1:1" (default), "3:4"
+  - aspect_ratio (string, optional): "1:1" (default) or "3:4"
   - chroma_key_bg (string, optional): 크로마키 색상 override. gpt-image-2에서는 미지정 시 "magenta" 자동 적용.
   - bg_threshold (number, optional): White background removal threshold 0-255 (default: 240)
   - use_concept (boolean, optional): Inject game concept into prompt (default: true)
@@ -242,10 +241,9 @@ Returns:
         description: z.string().min(10).max(3000).describe("Detailed character appearance description"),
         role: z.enum(["player", "enemy", "monster", "npc", "generic"]).default("generic")
           .describe("캐릭터 역할. player(주인공)·enemy(인간형 적)·monster(생물/괴수)·npc(주변 캐릭터)에 맞는 실루엣·컬러팔레트·디테일 가이던스 자동 주입. generic은 중립."),
-        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
-        model: z.string().optional().describe("Model override. Default: gpt-image-2 (최고 품질, 마젠타 크로마키 자동 적용). 대안: gpt-image-1, gpt-image-1-mini (네이티브 투명, 빠름) | gpt-image-1.5 | imagen-4.0-generate-001 (Gemini)"),
+        model: z.string().optional().describe("Model override. Default: gpt-image-2 (최고 품질, 마젠타 크로마키 자동 적용). 대안: gpt-image-1, gpt-image-1-mini (네이티브 투명, 빠름) | gpt-image-1.5"),
         size: z.enum(["1024x1024", "1024x1792", "1536x1024", "1024x1536"]).default("1024x1024").describe("Image size (OpenAI only)"),
-        aspect_ratio: z.enum(["1:1", "3:4"]).default("1:1").describe("Aspect ratio (Gemini only)"),
+        aspect_ratio: z.enum(["1:1", "3:4"]).default("1:1").describe("Aspect ratio"),
         bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Ignored when using gpt-image-1 native transparent or any chroma_key_bg."),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
           .describe("Chroma key background color override. gpt-image-2 기본 경로는 'magenta' 자동 적용(residue 패스로 내부 포켓까지 제거). gpt-image-1 계열은 미지정 시 네이티브 투명."),
@@ -289,8 +287,8 @@ Returns:
           try {
             descriptionForPrompt = await refineImagePrompt({
               userDescription: params.description,
-              targetModel: (effectiveModel.startsWith("gpt-image-") ? effectiveModel : "gemini-imagen") as
-                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini" | "gemini-imagen",
+              targetModel: effectiveModel as
+                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
               assetType: "character",
               conceptHint,
             });
@@ -311,16 +309,7 @@ Returns:
         let base64: string;
         let mimeType: string;
 
-        if (params.provider === "gemini") {
-          const r = await generateImageGemini({
-            prompt,
-            model: effectiveModel as "imagen-4.0-generate-001" | "imagen-4.0-fast-generate-001" | "imagen-4.0-ultra-generate-001" | undefined,
-            aspectRatio: params.aspect_ratio,
-          });
-          base64 = r.base64;
-          mimeType = r.mimeType;
-        } else {
-          const r = await generateImageOpenAI({
+        const r = await generateImageOpenAI({
             prompt,
             model: effectiveModel as
               | "gpt-image-2"
@@ -332,10 +321,9 @@ Returns:
             // gpt-image-2는 resolveBackground shim이 "auto"로 자동 강등함.
             // gpt-image-1 계열은 그대로 "transparent" 전송됨.
             background: "transparent",
-          });
-          base64 = r.base64;
-          mimeType = r.mimeType;
-        }
+        });
+        base64 = r.base64;
+        mimeType = r.mimeType;
 
         // gpt-image-1 계열만 네이티브 투명 PNG 반환 → 후처리 생략.
         // gpt-image-2는 chromaKeyColor(기본 magenta) 경로로 크로마키 제거 + residue 패스.
@@ -378,7 +366,7 @@ Returns:
           id: generateAssetId(),
           type: "image",
           asset_type: "character",
-          provider: params.provider,
+          provider: "openai",
           prompt: params.description,
           file_path: filePath,
           file_name: fileName,
@@ -406,10 +394,10 @@ Returns:
                 character_name: params.character_name,
                 file_path: filePath,
                 asset_id: asset.id,
-                provider: params.provider,
+                provider: "openai",
                 model: effectiveModel,
                 refined_by_gpt5: refinedByGPT5,
-                note: "Transparent PNG saved. Pass file_path to asset_generate_action_sprite or asset_generate_sprite_sheet.",
+                note: "Transparent PNG saved. Pass file_path to asset_generate_sprite_sheet.",
               }, null, 2),
             },
           ],
@@ -600,191 +588,6 @@ Returns:
     }
   );
 
-  // ── 2. 단일 액션 스프라이트 (Gemini Edit 기반) ─────────────────────────────
-  server.registerTool(
-    "asset_generate_action_sprite",
-    {
-      title: "Generate Character Action Sprite (Gemini Edit)",
-      description: `Generate a single action sprite by editing the base character image using Gemini.
-
-Gemini's image editing preserves the original character's colors, style, and proportions
-while only changing the pose/expression for the specified action.
-
-**Background Removal Method:**
-- chroma_key_bg = "magenta" (recommended): Composites on magenta (#FF00FF) before Gemini edit,
-  then removes it with color-distance algorithm. Better edge quality, fewer artifacts.
-- chroma_key_bg not set: Uses white background flood-fill (legacy, may damage light-colored edges).
-
-Args:
-  - base_character_path (string): File path to the base character image (from asset_generate_character_base)
-  - action (string): Action name — use a preset ("idle","walk","run","jump","attack","hurt","die")
-                     or a custom action name with custom_prompt
-  - custom_prompt (string, optional): Custom editing instruction (overrides preset action prompt)
-                    Example: "Show character charging a magic fireball, arms glowing"
-  - chroma_key_bg (string, optional): Intermediate background color for Gemini edit. Recommended: "magenta".
-                    Leave empty to use legacy white background flood-fill.
-  - character_name (string, optional): Character identifier for file naming
-  - frame_index (number, optional): Frame number within an animation (default: 0)
-  - output_dir (string, optional): Output directory
-
-Returns:
-  File path of the saved action sprite, Gemini-edited to match the base character.`,
-      inputSchema: z.object({
-        base_character_path: z.string().min(1).describe("Path to base character image file"),
-        action: z.string().min(1).max(100).describe("Action name (idle/walk/run/jump/attack/hurt/die or custom)"),
-        custom_prompt: z.string().max(2000).optional().describe("Custom edit instruction (overrides preset)"),
-        chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
-          .describe("Intermediate background color for Gemini edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
-        character_name: z.string().max(100).optional().describe("Character identifier for file naming"),
-        frame_index: z.number().int().min(0).max(99).default(0).describe("Frame number in animation"),
-        edit_model: z.string().default("gemini-2.5-flash-image").describe("Gemini model for image editing (gemini-2.5-flash-image supports image input/output)"),
-        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Used only when chroma_key_bg is not set."),
-        frame_padding: z.number().int().min(0).max(300).default(20).describe("Padding pixels added around each sprite (prevents edge cropping). Default: 20"),
-        quality_check: z.boolean().default(false).describe("Claude 비전으로 품질 검증 후 문제 시 OpenAI gpt-image-1로 자동 재생성. 기본: false"),
-        character_hint: z.string().max(500).optional().describe("품질 검증에 사용할 캐릭터 설명 (예: 'green alien in black armor')"),
-        output_dir: z.string().optional().describe("Output directory"),
-      }).strict(),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    async (params) => {
-      try {
-        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
-
-        // 원본 이미지 읽기
-        const { base64: origBase64, mimeType: origMime } = readImageAsBase64(params.base_character_path);
-
-        // 편집 프롬프트 결정 (buildActionEditPrompt 패턴 사용)
-        const isPresetAction = DEFAULT_ACTIONS.includes(params.action as DefaultAction);
-        const poseDescription = isPresetAction
-          ? ACTION_PROMPTS[params.action as DefaultAction]
-          : params.action;
-
-        // 크로마키 배경 색상 결정 (마젠타 권장 — 캐릭터에 존재하지 않는 색상)
-        const chromaKeyColor = params.chroma_key_bg
-          ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
-          : undefined;
-
-        const finalEditPrompt = params.custom_prompt ?? buildActionEditPrompt(poseDescription);
-
-        // Gemini는 투명 PNG를 받으면 체크 무늬로 렌더링함 → 단색 배경에 합성
-        const bgColor = chromaKeyColor ?? WHITE_BG_COLOR;
-        const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, bgColor);
-        const compositedBase64 = compositedBuffer.toString("base64");
-
-        const result = await editImageGemini({
-          imageBase64: compositedBase64,
-          imageMimeType: "image/png",
-          editPrompt: finalEditPrompt,
-          model: params.edit_model,
-        });
-
-        // 배경 제거: 크로마키 모드 (색상 거리 기반) 또는 순백 flood-fill
-        let processedBuffer: Buffer;
-        if (chromaKeyColor) {
-          // 마젠타 등 단색 배경 → 색상 거리 알고리즘으로 정밀 제거 (엣지 품질 우수)
-          processedBuffer = await processFrameBase64Chroma(result.base64, chromaKeyColor);
-        } else {
-          // 레거시: 순백 배경 flood-fill (임계값 기반)
-          processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
-        }
-        if (params.frame_padding > 0) {
-          const { addPaddingToBuffer } = await import("../utils/image-process.js");
-          processedBuffer = await addPaddingToBuffer(processedBuffer, params.frame_padding);
-        }
-        let qualityIssues: string[] = [];
-        let usedFallback = false;
-
-        // ── Claude 품질 검증 + OpenAI fallback ──────────────────────────────
-        if (params.quality_check) {
-          const qc = await checkSpriteFrameQuality(
-            processedBuffer.toString("base64"),
-            params.character_hint
-          );
-          if (!qc.passed) {
-            qualityIssues = qc.issues;
-            console.warn(`[quality-check] 품질 미달 (${qc.issues.join(", ")}) → OpenAI fallback`);
-            try {
-              const fallbackPoseDesc = params.custom_prompt
-                ?? `${poseDescription}. Full body visible, transparent background, single character, no clipping.`;
-              const fallbackResult = await editImageOpenAI({
-                imagePath: params.base_character_path,
-                prompt: fallbackPoseDesc,
-                size: "1024x1024",
-              });
-              processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);
-              usedFallback = true;
-            } catch (fallbackErr) {
-              console.warn("[quality-check] OpenAI fallback 실패:", fallbackErr);
-            }
-          }
-        }
-
-        const processedBase64 = processedBuffer.toString("base64");
-
-        const charName = params.character_name ??
-          path.basename(params.base_character_path).replace(/_base\.[^.]+$/, "");
-        const safeCharName = charName.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const safeAction = params.action.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const pathBase = buildAssetPath(
-          outputDir,
-          `sprites/${safeCharName}`,
-          `${safeCharName}_${safeAction}_f${String(params.frame_index).padStart(2, "0")}.png`
-        );
-        const written = await writeOptimized(processedBuffer, pathBase);
-        const filePath = written.path;
-        const fileName = path.basename(filePath);
-
-        const asset: GeneratedAsset = {
-          id: generateAssetId(),
-          type: "image",
-          asset_type: "sprite",
-          provider: "gemini-edit",
-          prompt: finalEditPrompt,
-          file_path: filePath,
-          file_name: fileName,
-          mime_type: written.format === "webp" ? "image/webp" : "image/png",
-          created_at: new Date().toISOString(),
-          metadata: {
-            character_name: charName,
-            action: params.action,
-            frame_index: params.frame_index,
-            base_character_path: params.base_character_path,
-          },
-        };
-
-        saveAssetToRegistry(asset, outputDir);
-
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                success: true,
-                file_path: filePath,
-                asset_id: asset.id,
-                action: params.action,
-                frame_index: params.frame_index,
-                provider: usedFallback ? "openai-fallback" : "gemini-edit",
-                quality_check: params.quality_check
-                  ? { passed: qualityIssues.length === 0, issues: qualityIssues, fallback_used: usedFallback }
-                  : undefined,
-              }, null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text" as const, text: handleApiError(error, "Gemini Image Edit") }],
-          isError: true,
-        };
-      }
-    }
-  );
 
   // ── 3. 스프라이트 시트 (여러 액션 일괄 생성 + 엔진별 내보내기) ───────────
   server.registerTool(
@@ -800,20 +603,20 @@ All action sprites are generated via gpt-image-2 edit to preserve the original
 character's colors, proportions, and art style. gpt-image-2는 투명 배경을 지원하지 않으므로
 내부적으로 단색 배경(마젠타 권장) 위에 편집 후 크로마키로 제거합니다.
 
-**Performance note**: gpt-image-2는 편집 요청당 ~30-60초 소요 (Gemini 대비 ~2.7× 느림).
+**Performance note**: gpt-image-2는 편집 요청당 ~30-60초 소요.
 7액션 × 1프레임 기본 세트 기준 ~5분, 다프레임 애니메이션은 더 오래 걸립니다.
 
 **Pose-First Pattern (권장):**
   1. asset_generate_character_base → 베이스 캐릭터 생성
   2. (선택) asset_generate_character_pose → 포즈 승인 이미지 생성
   3. asset_generate_sprite_sheet (pose_image 파라미터) → 포즈 이미지 기준으로 시트 생성
-  pose_image를 제공하면 Gemini 편집 기준 이미지가 base_character_path 대신 pose_image로 교체됩니다.
+  pose_image를 제공하면 편집 기준 이미지가 base_character_path 대신 pose_image로 교체됩니다.
   base_character_path는 메타데이터/매니페스트 참조용으로만 사용됩니다.
 
 Args:
   - base_character_path (string): File path to the base character image (메타데이터 참조용)
   - pose_image (string, optional): Pose-First 패턴용. 포즈 승인 이미지 경로.
-      제공 시 Gemini 편집 기준 이미지로 사용 (base_character_path 대체).
+      제공 시 편집 기준 이미지로 사용 (base_character_path 대체).
       asset_generate_character_pose로 생성한 포즈 이미지를 넣으세요.
   - character_name (string): Character identifier for file naming and manifest
   - actions (string[], optional): Actions to generate.
@@ -835,9 +638,9 @@ Returns:
   Individual frame files + composed sprite sheet(s) + engine-specific metadata files.
   Output: {output_dir}/sprites/{character_name}/`,
       inputSchema: z.object({
-        base_character_path: z.string().min(1).describe("Path to base character image file (메타데이터/매니페스트 참조용. pose_image 제공 시 Gemini 편집에는 사용되지 않음)"),
+        base_character_path: z.string().min(1).describe("Path to base character image file (메타데이터/매니페스트 참조용. pose_image 제공 시 편집에 사용되지 않음)"),
         pose_image: z.string().optional().describe(
-          "Pose-First 패턴: 포즈 승인 이미지 경로. 제공 시 Gemini 편집 기준 이미지로 사용 (base_character_path 대체). " +
+          "Pose-First 패턴: 포즈 승인 이미지 경로. 제공 시 편집 기준 이미지로 사용 (base_character_path 대체). " +
           "asset_generate_character_pose 결과물을 여기에 넣으세요."
         ),
         character_name: z.string().min(1).max(100).describe("Character identifier"),
@@ -975,12 +778,12 @@ Returns:
         ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
         : undefined;
 
-      // Pose-First 패턴: pose_image가 있으면 그걸 Gemini 편집 기준으로 사용
+      // Pose-First 패턴: pose_image가 있으면 그걸 편집 기준으로 사용
       // pose_image 없으면 base_character_path 사용 (기존 동작)
       const editSourcePath = params.pose_image ?? params.base_character_path;
       const poseFirstMode = !!params.pose_image;
 
-      // Gemini 전송 전: 투명 PNG를 단색 배경 위에 합성 (체크무늬 방지)
+      // 편집 API 호출 전: 투명 PNG를 단색 배경 위에 합성
       const sheetBgColor = sheetChromaKeyColor ?? WHITE_BG_COLOR;
       let compositedBase64 = origBase64;
       try {
@@ -1286,8 +1089,8 @@ Supported actions: "idle" and "attack" (or custom)
 
 Workflow:
   1. Prints a plan table before generating
-  2. For each weapon, composes base image onto solid white (avoids Gemini checkerboard issue)
-  3. Generates all 3 frames per action via Gemini image edit
+  2. For each weapon, composes base image onto solid white
+  3. Generates all 3 frames per action via gpt-image-2 edit
   4. Strips white background → transparent PNG
   5. Returns structured manifest with all file paths
 
@@ -1320,9 +1123,9 @@ Returns:
         actions: z.array(z.enum(["idle", "attack"])).default(["idle", "attack"])
           .describe("Actions to generate (default: both idle and attack)"),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
-          .describe("Intermediate background color for Gemini edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
-        edit_model: z.string().default("gemini-2.5-flash-image")
-          .describe("Gemini model for image editing"),
+          .describe("Intermediate background color for edit. Recommended: 'magenta'. Better edge quality than white flood-fill."),
+        edit_model: z.string().default("gpt-image-2")
+          .describe("OpenAI image edit model"),
         output_dir: z.string().optional().describe("Root output directory"),
       }).strict(),
       annotations: {
@@ -1394,15 +1197,10 @@ Returns:
               const editPrompt = buildActionEditPrompt(poseDesc);
 
               try {
-                // 투명 PNG → 단색 배경 합성 (Gemini 격자무늬 방지)
-                const compositedBuffer = await compositeOntoSolidBg(params.base_character_path, weaponBgColor);
-                const compositedBase64 = compositedBuffer.toString("base64");
-
-                const editResult = await editImageGemini({
-                  imageBase64: compositedBase64,
-                  imageMimeType: "image/png",
-                  editPrompt,
-                  model: params.edit_model,
+                const editResult = await editImageOpenAI({
+                  imagePath: path.resolve(params.base_character_path),
+                  prompt: editPrompt,
+                  model: params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
                 });
 
                 // 배경 제거: 크로마키 모드 또는 순백 flood-fill
@@ -1431,7 +1229,7 @@ Returns:
                   id: generateAssetId(),
                   type: "image",
                   asset_type: "sprite",
-                  provider: "gemini-edit",
+                  provider: "openai-edit",
                   prompt: editPrompt,
                   file_path: filePath,
                   file_name: fileName,

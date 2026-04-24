@@ -3,7 +3,6 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, ASSET_TYPES, MUSIC_TYPES } from "../constants.js";
-import { editImageGemini } from "../services/gemini.js";
 import { editImageOpenAI } from "../services/openai.js";
 import { generateMusicLocal, generateMusicGradio } from "../services/local-music.js";
 import {
@@ -69,7 +68,7 @@ export function registerEditTools(server: McpServer): void {
     {
       title: "Edit Existing Game Asset Image",
       description: `Edit an existing game asset image (background, UI element, sprite, etc.)
-using Gemini or OpenAI image editing.
+using OpenAI image editing.
 
 Use this to:
   - Change colors or color scheme of an asset
@@ -84,7 +83,6 @@ Args:
         "Make the background darker and more ominous with fog"
         "Change the button color from blue to red, keep the same shape"
         "Add a magical glow effect around the sword"
-  - provider (string): "gemini" (default) or "openai"
   - preserve_unchanged (boolean, optional): Adds "keep everything else exactly the same"
       to the prompt (default: true)
   - save_mode (string): "new_file" (default) saves as a new file, "overwrite" replaces original
@@ -95,7 +93,6 @@ Returns:
       inputSchema: z.object({
         file_path: z.string().min(1).describe("Path to the existing image to edit"),
         instruction: z.string().min(5).max(2000).describe("What to change in the image"),
-        provider: z.enum(["gemini", "openai"]).default("gemini").describe("AI provider"),
         preserve_unchanged: z.boolean().default(true).describe("Keep all other details identical"),
         save_mode: z.enum(["new_file", "overwrite"]).default("new_file").describe("Save as new file or overwrite"),
         output_dir: z.string().optional().describe("Output directory (new_file mode)"),
@@ -104,24 +101,13 @@ Returns:
     },
     async (params) => {
       try {
-        const { base64: origBase64, mimeType: origMime } = readImageBase64(params.file_path);
-
         const editPrompt = params.preserve_unchanged
           ? `${params.instruction}. Keep everything else in the image exactly the same — same composition, same style, same proportions, same other elements.`
           : params.instruction;
 
-        let resultBase64: string;
-        let resultMime: string;
-
-        if (params.provider === "openai") {
-          const r = await editImageOpenAI({ imagePath: path.resolve(params.file_path), prompt: editPrompt });
-          resultBase64 = r.base64;
-          resultMime = r.mimeType;
-        } else {
-          const r = await editImageGemini({ imageBase64: origBase64, imageMimeType: origMime, editPrompt });
-          resultBase64 = r.base64;
-          resultMime = r.mimeType;
-        }
+        const r = await editImageOpenAI({ imagePath: path.resolve(params.file_path), prompt: editPrompt });
+        const resultBase64 = r.base64;
+        const resultMime = r.mimeType;
 
         let savePath: string;
         if (params.save_mode === "overwrite") {
@@ -140,7 +126,7 @@ Returns:
           id: generateAssetId(),
           type: "image",
           asset_type: "other",
-          provider: `${params.provider}-edit`,
+          provider: "openai-edit",
           prompt: params.instruction,
           file_path: savePath,
           file_name: path.basename(savePath),
@@ -152,7 +138,7 @@ Returns:
 
         return {
           content: [
-            { type: "text" as const, text: JSON.stringify({ success: true, file_path: savePath, provider: params.provider }, null, 2) },
+            { type: "text" as const, text: JSON.stringify({ success: true, file_path: savePath, provider: "openai" }, null, 2) },
           ],
         };
       } catch (error) {
@@ -204,8 +190,6 @@ Returns:
     },
     async (params) => {
       try {
-        const { base64: origBase64, mimeType: origMime } = readImageBase64(params.base_character_path);
-
         // 캐릭터 정체성 보존 프롬프트
         const editPrompt =
           `${params.instruction}. ` +
@@ -213,10 +197,9 @@ Returns:
           `Keep the same face structure, body proportions, and overall silhouette. ` +
           `Only change what is explicitly requested.`;
 
-        const { base64: newBase64, mimeType: newMime } = await editImageGemini({
-          imageBase64: origBase64,
-          imageMimeType: origMime,
-          editPrompt,
+        const { base64: newBase64, mimeType: newMime } = await editImageOpenAI({
+          imagePath: path.resolve(params.base_character_path),
+          prompt: editPrompt,
         });
 
         // 새 베이스 이미지 저장
@@ -262,10 +245,9 @@ Returns:
                   : `Show this character performing: "${frame.action}". Keep all proportions identical.`;
 
               try {
-                const edited = await editImageGemini({
-                  imageBase64: newBase64,
-                  imageMimeType: newMime,
-                  editPrompt: actionPrompt,
+                const edited = await editImageOpenAI({
+                  imagePath: newBasePath,
+                  prompt: actionPrompt,
                 });
 
                 const ext = edited.mimeType.includes("jpeg") ? "jpg" : "png";
@@ -339,17 +321,14 @@ Returns:
     },
     async (params) => {
       try {
-        const { base64: spriteBase64, mimeType: spriteMime } = readImageBase64(params.sprite_path);
-
         const editPrompt =
           `${params.instruction}. ` +
           `Preserve the character's art style, colors, and proportions exactly. ` +
           `Only make the requested change.`;
 
-        const { base64: resultBase64, mimeType: resultMime } = await editImageGemini({
-          imageBase64: spriteBase64,
-          imageMimeType: spriteMime,
-          editPrompt,
+        const { base64: resultBase64, mimeType: resultMime } = await editImageOpenAI({
+          imagePath: path.resolve(params.sprite_path),
+          prompt: editPrompt,
         });
 
         let savePath: string;
@@ -369,7 +348,7 @@ Returns:
           id: generateAssetId(),
           type: "image",
           asset_type: "sprite",
-          provider: "gemini-edit",
+          provider: "openai-edit",
           prompt: params.instruction,
           file_path: savePath,
           file_name: path.basename(savePath),

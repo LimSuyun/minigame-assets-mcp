@@ -273,6 +273,62 @@ export async function generateImageWithResponses(
   };
 }
 
+// ─── Vision 텍스트 분석 (Responses API) ─────────────────────────────────────
+
+export interface OpenAIVisionParams {
+  imageBase64: string;
+  imageMimeType: string;
+  prompt: string;
+  textModel?: "gpt-4.1" | "gpt-4.1-mini" | "gpt-4o" | "gpt-4o-mini";
+  maxOutputTokens?: number;
+}
+
+/**
+ * OpenAI Responses API로 이미지 분석 → 텍스트 반환.
+ * 스프라이트 품질 검증, canon consistency 등에 사용.
+ */
+export async function analyzeImageOpenAI(
+  params: OpenAIVisionParams
+): Promise<string> {
+  const apiKey = requireEnvVar("OPENAI_API_KEY");
+
+  const body = {
+    model: params.textModel ?? "gpt-4.1-mini",
+    input: [{
+      role: "user",
+      content: [
+        {
+          type: "input_image",
+          image_url: `data:${params.imageMimeType};base64,${params.imageBase64}`,
+        },
+        { type: "input_text", text: params.prompt },
+      ],
+    }],
+    max_output_tokens: params.maxOutputTokens ?? 1024,
+  };
+
+  type VisionOutputItem = {
+    type: string;
+    content?: Array<{ type: string; text?: string }>;
+  };
+
+  const response = await axios.post<{ output: VisionOutputItem[] }>(
+    `${OPENAI_API_URL}/responses`,
+    body,
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 60000,
+    }
+  );
+
+  const msgOutput = response.data.output?.find(o => o.type === "message");
+  const textPart = msgOutput?.content?.find(c => c.type === "output_text");
+  return textPart?.text ?? "";
+}
+
 // ─── 비디오 생성 ─────────────────────────────────────────────────────────────
 
 export interface OpenAIVideoParams {

@@ -18,6 +18,7 @@ import {
   DEFAULT_ASSET_SIZE_SPEC_FILE,
 } from "../constants.js";
 import { handleApiError } from "../utils/errors.js";
+import { ensureDir } from "../utils/files.js";
 import { loadCanonRegistry } from "../utils/canon.js";
 import type { GameDesign, AssetSizeSpecFile, SizeSpec, GameDesignSize, NestedSizeSpecs } from "../types.js";
 import { analyzeAssetRequirements, levelEmoji, levelLabel, type RequirementLevel } from "../utils/asset-requirements.js";
@@ -258,7 +259,7 @@ Returns:
           { stage: 0, name: "Canon & Foundation", tools: ["asset_generate_size_spec", "asset_generate_app_logo", "asset_register_canon", "asset_generate_style_reference_sheet"] },
           { stage: 1, name: "Characters", tools: ["asset_generate_character_base", "asset_generate_character_pose", "asset_generate_action_sprite"] },
           { stage: 2, name: "UI Structural", tools: ["asset_generate_ui_structural", "asset_generate_button_set", "asset_generate_hud_set", "asset_generate_popup_set"] },
-          { stage: 3, name: "Backgrounds", tools: ["asset_generate_screen_background", "asset_generate_image_gemini"] },
+          { stage: 3, name: "Backgrounds", tools: ["asset_generate_screen_background"] },
           { stage: 4, name: "Items & Effects", tools: ["asset_generate_image", "asset_batch_generate_images"] },
           { stage: 5, name: "Audio", tools: ["asset_generate_music_local"] },
           { stage: 6, name: "Marketing", tools: ["asset_generate_thumbnail", "asset_generate_app_logo"] },
@@ -403,6 +404,7 @@ Returns:
         };
 
         const outputFile = path.resolve(params.output_file || DEFAULT_ASSET_SIZE_SPEC_FILE);
+        ensureDir(path.dirname(outputFile));
         fs.writeFileSync(outputFile, JSON.stringify(specFile, null, 2), "utf-8");
 
         const { base } = specs;
@@ -1103,7 +1105,8 @@ Returns:
         ];
 
         const mdContent = lines.join("\n");
-        const planFile = path.resolve(params.output_plan_file || "./FULL_ASSET_PLAN.md");
+        const planFile = path.resolve(params.output_plan_file || "./.minigame-assets/FULL_ASSET_PLAN.md");
+        ensureDir(path.dirname(planFile));
         fs.writeFileSync(planFile, mdContent, "utf-8");
 
         return {

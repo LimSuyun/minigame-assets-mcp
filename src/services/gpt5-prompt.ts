@@ -31,8 +31,7 @@ export type PromptTargetModel =
   | "gpt-image-2"
   | "gpt-image-1.5"
   | "gpt-image-1"
-  | "gpt-image-1-mini"
-  | "gemini-imagen";
+  | "gpt-image-1-mini";
 
 export interface RefinePromptParams {
   /** 사용자가 제공한 원본 설명 (짧거나 모국어여도 됨) */
@@ -94,8 +93,6 @@ function buildModelGuidance(m: PromptTargetModel): string {
     case "gpt-image-1":
     case "gpt-image-1-mini":
       return "gpt-image-1 family: concise focused prompts. State subject clearly first, then key visual attributes, then art style keywords. Avoid over-long sentences.";
-    case "gemini-imagen":
-      return "Gemini Imagen prefers natural scene description in everyday visual language. Avoid technical camera terms. Write like describing a painting to someone.";
   }
 }
 

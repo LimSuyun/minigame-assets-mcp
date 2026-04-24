@@ -9,7 +9,7 @@
  *   - asset_generate_button_set    : AI 기반 (gpt-image-1) — 비주얼 버튼 세트
  *   - asset_generate_hud_set       : AI 기반 — HUD 요소
  *   - asset_generate_icon_set      : AI 기반 — 아이콘 세트
- *   - asset_generate_screen_background : AI 기반 (Gemini) — 화면 배경
+ *   - asset_generate_screen_background : AI 기반 (gpt-image-2) — 화면 배경
  *   - asset_generate_popup_set     : AI 기반 — 팝업/다이얼로그 세트
  */
 
@@ -19,7 +19,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, DEFAULT_GAME_DESIGN_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
-import { generateImageGemini } from "../services/gemini.js";
 import { refineImagePrompt } from "../services/gpt5-prompt.js";
 import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 import {
@@ -268,17 +267,10 @@ interface GenerateResult {
 
 async function generateImage(
   prompt: string,
-  provider: "openai" | "gemini",
   size: string,
-  aspectRatio?: string,
   openaiModel?: "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
   background?: "transparent" | "opaque" | "auto",
 ): Promise<GenerateResult> {
-  if (provider === "gemini") {
-    const validRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
-    const ratio = (validRatios.includes(aspectRatio || "") ? aspectRatio : "1:1") as "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
-    return generateImageGemini({ prompt, aspectRatio: ratio });
-  }
   const validSizes = ["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536"];
   const safeSize = validSizes.includes(size) ? size : "1024x1024";
   return generateImageOpenAI({
@@ -472,7 +464,6 @@ Args:
       - description (string): What the element depicts
       - element_type (string): "icon" | "badge" | "emblem" | "decoration" | "frame" | "seal" | "medal"
   - style_description (string): Overall decorative style (e.g., "Fantasy RPG, gold and purple, ornate")
-  - provider (string, optional): "openai" | "gemini" (default: "openai" for transparent bg)
   - concept_file (string, optional): Path to game concept
   - design_file (string, optional): Path to GAME_DESIGN.json
   - output_dir (string, optional): Output directory
@@ -487,7 +478,6 @@ Returns:
             .default("icon").describe("Type of decorative element"),
         })).min(1).max(20).describe("Decorative elements to generate"),
         style_description: z.string().min(5).max(1000).describe("Overall decorative style"),
-        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         design_file: z.string().optional().describe("Path to GAME_DESIGN.json"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -524,7 +514,7 @@ Returns:
           ].filter(Boolean).join(" ");
 
           try {
-            const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
+            const result = await generateImage(prompt, "1024x1024");
             const safeId = element.id.replace(/[^a-zA-Z0-9_-]/g, "_");
             let fileName =`deco_${safeId}.png`;
             let filePath = buildAssetPath(outputDir, "ui/decorative", fileName);
@@ -535,7 +525,7 @@ Returns:
               id: generateAssetId(),
               type: "image",
               asset_type: "ui_decorative",
-              provider: params.provider,
+              provider: "openai",
               prompt,
               file_path: filePath,
               file_name: fileName,
@@ -585,7 +575,6 @@ Args:
   - style_description (string): Visual style of the button
   - button_types (string[], optional): ["normal", "pressed", "disabled", "hover"] (default: ["normal","pressed","disabled"])
   - sizes (string[], optional): ["small", "normal", "wide"] (default: ["normal"])
-  - provider (string, optional): "openai" | "gemini" (default: "openai")
   - concept_file (string, optional): Path to game concept
   - output_dir (string, optional): Output directory
 
@@ -596,7 +585,6 @@ Returns:
         button_types: z.array(z.enum(["normal", "pressed", "disabled", "hover"]))
           .default(["normal", "pressed", "disabled"]).describe("Button state variants"),
         sizes: z.array(z.enum(["small", "normal", "wide"])).default(["normal"]).describe("Button size variants"),
-        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         design_file: z.string().optional().describe("Path to GAME_DESIGN.json"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -635,14 +623,14 @@ Returns:
             ].filter(Boolean).join(" ");
 
             try {
-              const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
+              const result = await generateImage(prompt, "1024x1024");
               let fileName =`btn_${size}_${state}.png`;
               let filePath = buildAssetPath(outputDir, "ui/buttons", fileName);
               ensureDir(path.dirname(filePath));
               const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
               saveAssetToRegistry({
                 id: generateAssetId(), type: "image", asset_type: "ui_element",
-                provider: params.provider, prompt, file_path: filePath,
+                provider: "openai", prompt, file_path: filePath,
                 file_name: fileName, mime_type: _saved.mimeType,
                 created_at: new Date().toISOString(),
                 metadata: { button_state: state, button_size: size },
@@ -685,7 +673,6 @@ Args:
   - game_type (string): "rpg" | "platformer" | "shooter" | "puzzle" | "strategy" | "general"
   - style_description (string): HUD visual style
   - elements (string[], optional): Elements to generate (default: all)
-  - provider (string, optional): AI provider (default: "openai")
   - concept_file (string, optional): Path to game concept
   - output_dir (string, optional): Output directory
 
@@ -704,7 +691,6 @@ Returns:
           "energy_bar_fill", "energy_bar_bg",
           "score_frame", "minimap_frame", "ability_icon_bg",
         ]).describe("HUD elements to generate"),
-        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
         concept_file: z.string().optional().describe("Path to game concept JSON"),
         design_file: z.string().optional().describe("Path to GAME_DESIGN.json"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -733,14 +719,14 @@ Returns:
           const prompt = (styleHint ? `${basePrompt} Game style: ${styleHint}.` : basePrompt) + ` ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
           try {
-            const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
+            const result = await generateImage(prompt, "1024x1024");
             let fileName =`hud_${element}.png`;
             let filePath = buildAssetPath(outputDir, "ui/hud", fileName);
             ensureDir(path.dirname(filePath));
             const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "ui_element",
-              provider: params.provider, prompt, file_path: filePath,
+              provider: "openai", prompt, file_path: filePath,
               file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { hud_element: element, game_type: params.game_type },
@@ -785,7 +771,6 @@ Args:
   - background_shape (string): "none" | "circle" | "rounded_square" | "diamond"
   - background_color (string, optional): Hex or "transparent"
   - style_description (string): Overall icon set style
-  - provider (string, optional): AI provider (default: "openai")
   - output_dir (string, optional): Output directory
 
 Returns:
@@ -799,7 +784,6 @@ Returns:
         background_shape: z.enum(["none", "circle", "rounded_square", "diamond"]).default("rounded_square"),
         background_color: z.string().default("transparent"),
         style_description: z.string().min(5).max(1000).describe("Overall icon set style"),
-        provider: z.enum(["openai", "gemini"]).default("openai"),
         concept_file: z.string().optional(),
         design_file: z.string().optional(),
         output_dir: z.string().optional(),
@@ -841,7 +825,7 @@ Returns:
           ].filter(Boolean).join(" ");
 
           try {
-            const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
+            const result = await generateImage(prompt, "1024x1024");
             const safeId = icon.id.replace(/[^a-zA-Z0-9_-]/g, "_");
             let fileName =`icon_${safeId}.png`;
             let filePath = buildAssetPath(outputDir, "ui/icons", fileName);
@@ -849,7 +833,7 @@ Returns:
             const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "icon",
-              provider: params.provider, prompt, file_path: filePath,
+              provider: "openai", prompt, file_path: filePath,
               file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { icon_id: icon.id, icon_style: params.icon_style },
@@ -893,19 +877,16 @@ Supports:
 - "static": Single background image — **openai/gpt-image-2 권장** (불투명 PNG, 디테일 우수)
 - "parallax": 3 layers (far/mid/near) for parallax scrolling
   - far  = SW×2.5 width (sky, distant horizon) — openai/gpt-image-2 가능 (불투명)
-  - mid  = SW×3.5 width (midground elements, **투명 PNG 필요 → provider: "gemini" 권장**)
-  - near = SW×5.0 width (foreground elements, **투명 PNG 필요 → provider: "gemini" 권장**)
+  - mid  = SW×3.5 width (midground elements, 투명 PNG)
+  - near = SW×5.0 width (foreground elements, 투명 PNG)
 
 **주의**: gpt-image-2는 네이티브 투명 배경을 지원하지 않습니다.
 - static 배경 (불투명): openai/gpt-image-2가 최적
-- parallax mid/near 레이어 (투명 필수): Gemini Imagen 또는 openai+magenta 크로마키 후처리 필요.
-  현재 이 도구는 간단화를 위해 parallax 시 provider 그대로 적용 — 투명 레이어가 필요하면 provider: "gemini" 지정하세요.
 
 Args:
   - screen_name (string): Name of the screen
   - description (string): Detailed background description
   - style (string, optional): "static" | "parallax" (default: "static")
-  - provider (string, optional): "openai" (default, gpt-image-2) | "gemini" (parallax 투명 레이어용)
   - model (string, optional): OpenAI 모델. 기본: gpt-image-2
   - aspect_ratio (string, optional): "9:16" | "16:9" | "1:1" (default: "9:16")
   - concept_file (string, optional): Path to game concept
@@ -917,7 +898,6 @@ Returns:
         screen_name: z.string().min(1).max(200).describe("Screen name for this background"),
         description: z.string().min(10).max(3000).describe("Detailed background description"),
         style: z.enum(["static", "parallax"]).default("static").describe("Background type"),
-        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider. 기본: openai(gpt-image-2). parallax 투명 레이어엔 'gemini' 권장."),
         model: z.string().optional().describe("OpenAI 모델 override. 기본: gpt-image-2"),
         aspect_ratio: z.enum(["9:16", "16:9", "1:1", "3:4", "4:3"]).default("9:16"),
         concept_file: z.string().optional(),
@@ -952,9 +932,7 @@ Returns:
             // static 배경은 불투명 PNG가 표준. gpt-image-2는 투명 미지원이라 "opaque" 명시.
             const result = await generateImage(
               BASE_PROMPT + " Complete scene with full foreground, midground, and background.",
-              params.provider,
               "1024x1024",
-              params.aspect_ratio,
               openaiModel,
               "opaque",
             );
@@ -964,7 +942,7 @@ Returns:
             const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "background",
-              provider: params.provider, prompt: BASE_PROMPT, file_path: filePath,
+              provider: "openai", prompt: BASE_PROMPT, file_path: filePath,
               file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { screen_name: params.screen_name, style: "static" },
@@ -983,17 +961,10 @@ Returns:
           for (const layer of LAYERS) {
             try {
               const prompt = `${BASE_PROMPT} ${layer.promptExtra}`;
-              // mid/near는 투명 배경 필요하나 gpt-image-2 미지원.
-              // provider: "gemini" 지정 시 Gemini 경로로 처리됨.
-              const needsTransparent = layer.id !== "far";
-              const layerBackground = needsTransparent && params.provider === "openai"
-                ? "transparent" as const  // shim이 auto로 강등 → 결과는 불투명일 수 있음 (gemini 권장)
-                : (layer.id === "far" ? "opaque" as const : "transparent" as const);
+              const layerBackground = layer.id === "far" ? "opaque" as const : "transparent" as const;
               const result = await generateImage(
                 prompt,
-                params.provider,
                 "1792x1024",
-                layer.aspectRatio as "16:9",
                 openaiModel,
                 layerBackground,
               );
@@ -1003,7 +974,7 @@ Returns:
               const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
               saveAssetToRegistry({
                 id: generateAssetId(), type: "image", asset_type: "background",
-                provider: params.provider, prompt, file_path: filePath,
+                provider: "openai", prompt, file_path: filePath,
                 file_name: fileName, mime_type: _saved.mimeType,
                 created_at: new Date().toISOString(),
                 metadata: { screen_name: params.screen_name, style: "parallax", layer: layer.id },
@@ -1056,7 +1027,6 @@ Popup types:
 Args:
   - popup_types (string[]): Popup types to generate (default: ["dialog", "reward", "confirm"])
   - style_description (string): Visual style of the popups
-  - provider (string, optional): "openai" | "gemini" (default: "openai")
   - concept_file (string, optional): Path to game concept
   - output_dir (string, optional): Output directory
 
@@ -1066,7 +1036,6 @@ Returns:
         popup_types: z.array(z.enum(["dialog", "reward", "confirm", "settings", "inventory", "shop", "gameover"]))
           .default(["dialog", "reward", "confirm"]).describe("Popup types to generate"),
         style_description: z.string().min(10).max(2000).describe("Visual style of the popups"),
-        provider: z.enum(["openai", "gemini"]).default("openai").describe("AI provider"),
         concept_file: z.string().optional(),
         design_file: z.string().optional(),
         output_dir: z.string().optional(),
@@ -1102,14 +1071,14 @@ Returns:
           ].filter(Boolean).join(" ");
 
           try {
-            const result = await generateImage(prompt, params.provider, "1024x1024", "1:1");
+            const result = await generateImage(prompt, "1024x1024");
             let fileName =`popup_${popupType}.png`;
             let filePath = buildAssetPath(outputDir, "ui/popups", fileName);
             ensureDir(path.dirname(filePath));
             const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "ui_popup",
-              provider: params.provider, prompt, file_path: filePath,
+              provider: "openai", prompt, file_path: filePath,
               file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
               metadata: { popup_type: popupType },

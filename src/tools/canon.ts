@@ -11,7 +11,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
-import { editImageGemini, analyzeImageGemini } from "../services/gemini.js";
+import { editImageOpenAI, analyzeImageOpenAI } from "../services/openai.js";
 import {
   loadCanonRegistry,
   registerCanonEntry,
@@ -270,7 +270,7 @@ Returns:
     {
       title: "Generate Asset with Canon Reference",
       description: `Generate a new game asset using a Canon image as a style/character reference.
-Uses Gemini 2.5 Flash Image editing with the Canon image as visual context.
+Uses OpenAI image editing with the Canon image as visual context.
 
 Best for:
 - Generating derivative assets that match a Canon character's style
@@ -292,8 +292,8 @@ Returns:
         prompt: z.string().min(10).max(3000).describe("Description of the new asset to generate"),
         asset_type: z.string().default("sprite").describe("Asset type category"),
         asset_name: z.string().min(1).max(200).describe("Output file name (without extension)"),
-        edit_model: z.string().default("gemini-2.5-flash-image")
-          .describe("Gemini model for generation"),
+        edit_model: z.string().default("gpt-image-2")
+          .describe("OpenAI image edit model"),
         register_as_derived: z.boolean().default(false)
           .describe("Register generated asset as derived from this Canon"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -319,20 +319,10 @@ Returns:
           };
         }
 
-        let inputBase64: string;
-        try {
-          const compositedBuffer = await compositeOntoSolidBg(canon.file_path, [255, 255, 255]);
-          inputBase64 = compositedBuffer.toString("base64");
-        } catch {
-          const { base64 } = readImageAsBase64(canon.file_path);
-          inputBase64 = base64;
-        }
-
-        const result = await editImageGemini({
-          imageBase64: inputBase64,
-          imageMimeType: "image/png",
-          editPrompt: params.prompt,
-          model: params.edit_model,
+        const result = await editImageOpenAI({
+          imagePath: path.resolve(canon.file_path),
+          prompt: params.prompt,
+          model: (params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini"),
         });
 
         const safeAssetName = params.asset_name.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -345,7 +335,7 @@ Returns:
           id: generateAssetId(),
           type: "image",
           asset_type: params.asset_type,
-          provider: "gemini-edit",
+          provider: "openai-edit",
           prompt: params.prompt,
           file_path: filePath,
           file_name: fileName,
@@ -753,9 +743,9 @@ Returns an overall_score (0.0-1.0) with per-item breakdown and recommendation.
 
 Scoring System (weighted):
   - color_palette  ×0.4 — CIE76 ΔE color distance check
-  - art_style      ×0.3 — Gemini Vision art style analysis
-  - char_identity  ×0.2 — Character identity preservation (Gemini Vision)
-  - proportion     ×0.1 — Proportion correctness (Gemini Vision)
+  - art_style      ×0.3 — OpenAI Vision art style analysis
+  - char_identity  ×0.2 — Character identity preservation (OpenAI Vision)
+  - proportion     ×0.1 — Proportion correctness (OpenAI Vision)
 
 Recommendation thresholds (플랜 기준: 0.7 경계):
   - overall_score ≥ 0.8: "통과"
@@ -766,7 +756,7 @@ Args:
   - target_paths (string[]): Image files to validate (up to 10)
   - canon_id (string, optional): Canon entry to compare against
   - check_color_palette (boolean, optional): Run CIE76 ΔE color check (default: true)
-  - check_visual_style (boolean, optional): Run Gemini Vision multi-item check (default: false)
+  - check_visual_style (boolean, optional): Run OpenAI Vision multi-item check (default: false)
   - color_threshold (number, optional): Max acceptable ΔE for pass (default: 25)
   - output_dir (string, optional): Output directory
 
@@ -776,7 +766,7 @@ Returns:
         target_paths: z.array(z.string()).min(1).max(10).describe("Image files to validate"),
         canon_id: z.string().optional().describe("Canon entry to compare against"),
         check_color_palette: z.boolean().default(true).describe("Run CIE76 ΔE color check"),
-        check_visual_style: z.boolean().default(false).describe("Run Gemini Vision multi-item check (uses API)"),
+        check_visual_style: z.boolean().default(false).describe("Run OpenAI Vision multi-item check (uses API)"),
         color_threshold: z.number().min(0).max(100).default(25)
           .describe("Max acceptable ΔE distance for color palette (default: 25)"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -870,7 +860,7 @@ Returns:
             }
           }
 
-          // 2) Gemini Vision 다항목 검사 → 개별 점수 산출
+          // 2) OpenAI Vision 다항목 검사 → 개별 점수 산출
           if (params.check_visual_style) {
             const { base64, mimeType } = readImageAsBase64(resolved);
             const canonDesc = canonEntry
@@ -892,11 +882,11 @@ Reply ONLY with valid JSON (no extra text):
 {"color_palette": 0.9, "art_style": 0.85, "character_identity": 0.8, "proportion": 0.95, "issues": []}`;
 
             try {
-              const text = await analyzeImageGemini({
+              const text = await analyzeImageOpenAI({
                 imageBase64: base64,
                 imageMimeType: mimeType,
                 prompt: stylePrompt,
-                model: "gemini-2.5-flash",
+                textModel: "gpt-4.1-mini",
                 maxOutputTokens: 400,
               });
               const match = text.match(/\{[\s\S]*\}/);
@@ -927,7 +917,7 @@ Reply ONLY with valid JSON (no extra text):
                 }
               }
             } catch (e) {
-              console.warn("[validate] Gemini Vision 검사 실패:", e);
+              console.warn("[validate] OpenAI Vision 검사 실패:", e);
             }
           }
 

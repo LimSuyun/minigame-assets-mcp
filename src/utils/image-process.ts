@@ -260,8 +260,8 @@ export async function removeBackground(
 
 /**
  * 투명 PNG를 단색 배경 위에 합성하여 Buffer 반환.
- * Gemini는 투명 PNG를 받으면 투명 영역을 체크 무늬로 렌더링하므로,
- * Gemini에 보내기 전에 반드시 이 함수로 단색 배경에 합성해야 함.
+ * 일부 이미지 edit API는 투명 PNG를 받으면 투명 영역을 체크 무늬로 렌더링하므로,
+ * 편집 API에 보내기 전에 단색 배경에 합성해 두면 안정적이다.
  */
 export async function compositeOntoSolidBg(
   imagePath: string,
@@ -356,7 +356,7 @@ export async function processCharacterSprite(
 }
 
 // ─── AI 기반 배경 제거 (rembg / U2Net) ───────────────────────────────────────
-// 배경 색상과 무관하게 전경을 분리. Gemini 출력처럼 배경이 불규칙할 때 사용.
+// 배경 색상과 무관하게 전경을 분리. 배경이 불규칙한 경우에도 동작.
 
 const REMBG_SCRIPT = path.resolve(
   new URL(".", import.meta.url).pathname,
@@ -365,7 +365,7 @@ const REMBG_SCRIPT = path.resolve(
 
 /**
  * rembg(U2Net)로 배경 제거 후 투명 PNG 저장.
- * Gemini 이미지 편집 결과처럼 배경이 체크무늬/불규칙한 경우에도 안정적으로 동작.
+ * 배경이 체크무늬/불규칙한 경우에도 안정적으로 동작.
  */
 export async function removeBackgroundAI(
   inputPath: string,
@@ -398,7 +398,7 @@ export async function addPaddingToBuffer(inputBuffer: Buffer, paddingPixels: num
 
 /**
  * Base64 이미지를 chroma key flood-fill로 배경 제거 → 콘텐츠 크롭 → 패딩 추가 → Buffer 반환.
- * Gemini 편집 결과처럼 단색 배경이 있을 때 rembg보다 정확하게 캐릭터를 보존.
+ * 단색 배경이 있는 편집 결과에서 rembg보다 정확하게 캐릭터를 보존.
  * @param chromaKeyColor 제거할 배경 RGB 색상
  * @param threshold 색상 허용 거리 (기본: 35)
  */
@@ -477,7 +477,7 @@ export async function makeSeamlessTileable(imageBuffer: Buffer): Promise<Buffer>
 
 /**
  * Base64 이미지를 rembg로 배경 제거 → 콘텐츠 크롭 → 패딩 추가 → Buffer 반환.
- * 스프라이트 생성 파이프라인에서 Gemini 편집 결과 처리용.
+ * 스프라이트 생성 파이프라인에서 편집 결과 처리용.
  */
 export async function processFrameBase64AI(base64: string, paddingPixels = 0): Promise<Buffer> {
   const tmpIn = path.join(

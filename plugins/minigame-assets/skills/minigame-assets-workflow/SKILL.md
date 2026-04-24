@@ -98,7 +98,7 @@ asset_generate_character_base
 - CONCEPT.md 의 `base_style_prompt` 는 모든 이미지 생성의 접두사 — 스타일·색상·질감을 영문으로 구체적으로 작성
 - 한국어/짧은 프롬프트만 있을 땐 각 도구의 `refine_prompt: true` 로 GPT-5.4-nano 확장 활성화
 - 이미지 생성에는 `OPENAI_API_KEY` (필수) / `GEMINI_API_KEY` (parallax·video 시 필요) 환경변수가 있어야 함
-- 컨셉 파일 경로는 `CONCEPT_FILE` (기본 `./game-concept.json`), `CONCEPT_MD_FILE` (기본 `./CONCEPT.md`) 환경변수로 오버라이드 가능
+- 컨셉 파일 경로는 `CONCEPT_FILE` (기본 `./.minigame-assets/game-concept.json`), `CONCEPT_MD_FILE` (기본 `./.minigame-assets/CONCEPT.md`) 환경변수로 오버라이드 가능
 
 ## 주제별 세부 스킬
 

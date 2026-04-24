@@ -1,9 +1,7 @@
 /**
  * vision-qc.ts
  *
- * 스프라이트/에셋 품질 검증 — Gemini 2.5 Flash Vision 사용.
- * 구 파일명 claude-vision.ts (Anthropic Claude Haiku → Gemini 2.5 Flash로 교체되면서
- * 이름만 남아 있던 케이스)을 v2.1에서 provider-neutral 네이밍으로 정리.
+ * 스프라이트/에셋 품질 검증 — OpenAI Responses API (gpt-4.1-mini vision) 사용.
  *
  * 검사 항목:
  *   1. 전신 가시성 — 머리부터 발끝까지 캐릭터가 완전히 보이는가 (잘림 없음)
@@ -13,7 +11,7 @@
  *   5. 유효한 이미지 — 거의 비어 있지 않은가 (빈 프레임 방지)
  */
 
-import { analyzeImageGemini } from "./gemini.js";
+import { analyzeImageOpenAI } from "./openai.js";
 
 export interface QualityCheckResult {
   passed: boolean;
@@ -36,11 +34,10 @@ or
 {"passed": false, "issues": ["FULL_BODY: left arm clipped", "BACKGROUND: white halo around weapon"]}`;
 
 /**
- * 스프라이트 프레임 품질 검증 (Gemini 2.5 Flash Vision).
+ * 스프라이트 프레임 품질 검증 (OpenAI gpt-4.1-mini vision).
  *
  * @param imageBase64 - PNG base64 (배경 제거 후)
- * @param characterHint - 선택적 캐릭터 설명 (예: "green alien soldier in black armor")
- * @returns QualityCheckResult — passed 및 이슈 목록
+ * @param characterHint - 선택적 캐릭터 설명
  */
 export async function checkSpriteFrameQuality(
   imageBase64: string,
@@ -51,15 +48,14 @@ export async function checkSpriteFrameQuality(
     : QUALITY_CHECK_PROMPT;
 
   try {
-    const text = await analyzeImageGemini({
+    const text = await analyzeImageOpenAI({
       imageBase64,
       imageMimeType: "image/png",
       prompt: userPrompt,
-      model: "gemini-2.5-flash",
+      textModel: "gpt-4.1-mini",
       maxOutputTokens: 300,
     });
 
-    // JSON 추출 (앞뒤 텍스트 허용)
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.warn("[quality-check] JSON 파싱 실패, passed=true로 처리:", text);
@@ -72,7 +68,6 @@ export async function checkSpriteFrameQuality(
       issues: Array.isArray(result.issues) ? result.issues : [],
     };
   } catch (err) {
-    // 네트워크 오류 등 — 검증 실패가 생성 중단 원인이 되지 않도록 passed 처리
     console.warn("[quality-check] 오류 발생, passed=true로 처리:", err);
     return { passed: true, issues: [] };
   }

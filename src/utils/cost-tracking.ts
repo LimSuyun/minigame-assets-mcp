@@ -43,9 +43,6 @@ function sizeMultiplier(size: string | undefined): number {
   return 1;
 }
 
-// Gemini Imagen — quality 구분 없음 (단일 가격)
-const GEMINI_PER_IMAGE_USD = 0.04;
-
 // GPT-5 계열 텍스트 모델 — per-token 과금 (추정)
 // (input $/1M tokens, output $/1M tokens)
 const GPT5_TEXT_PRICING: Record<string, { inputPer1M: number; outputPer1M: number }> = {
@@ -67,7 +64,7 @@ export interface ImageCostEstimate {
 /**
  * 이미지 생성 단건 추정 비용.
  *
- * @param model 모델 ID (gpt-image-2, gpt-image-1, imagen-*, gemini-*)
+ * @param model 모델 ID (gpt-image-2, gpt-image-1 등)
  * @param quality low/medium/high/auto
  * @param size 선택적 (2K/4K면 요금 계수 적용)
  */
@@ -76,11 +73,7 @@ export function estimateImageCost(
   quality: "low" | "medium" | "high" | "auto" | undefined = "auto",
   size?: string,
 ): ImageCostEstimate {
-  if (!model || model.includes("gemini") || model.includes("imagen")) {
-    return { usd: GEMINI_PER_IMAGE_USD, formula: `gemini/imagen flat $${GEMINI_PER_IMAGE_USD}` };
-  }
-
-  const pricing = OPENAI_IMAGE_PRICING[model];
+  const pricing = model ? OPENAI_IMAGE_PRICING[model] : undefined;
   if (!pricing) {
     // 알려지지 않은 모델 — 보수적으로 gpt-image-1 요금 사용
     const fallback = OPENAI_IMAGE_PRICING["gpt-image-1"].perImage[quality] ?? 0.02;

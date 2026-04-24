@@ -5,7 +5,6 @@ import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_ASSET_SIZE_SPEC_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
-import { generateImageGemini } from "../services/gemini.js";
 import {
   buildAssetPath,
   saveAssetToRegistry,
@@ -101,7 +100,7 @@ export function registerEnvironmentTools(server: McpServer): void {
       description: `Generate a multi-layer parallax background set for a game scene.
 
 Produces far/mid/near/ground layers at the correct widths for smooth side-scrolling parallax.
-- Far layer  : Gemini Imagen 4 (opaque, screen-fill background)
+- Far layer  : gpt-image-1-mini (opaque, screen-fill background)
 - Mid/near/ground layers: gpt-image-1 (transparent PNG, foreground objects)
 
 Each layer is made seamlessly tileable (horizontal loop) via edge-blending.
@@ -163,7 +162,6 @@ Args:
           widthMultiplier: number;
           transparent: boolean;
           speedFactor: number;
-          provider: "gemini" | "openai";
           promptSuffix: string;
         }
 
@@ -174,7 +172,6 @@ Args:
             widthMultiplier: 2.5,
             transparent: false,
             speedFactor: 0.1,
-            provider: "gemini",
             promptSuffix:
               "distant background scenery, fills entire frame, no foreground elements, solid opaque background",
           },
@@ -184,7 +181,6 @@ Args:
             widthMultiplier: 3.5,
             transparent: true,
             speedFactor: 0.3,
-            provider: "openai",
             promptSuffix:
               "mid-ground elements, scattered objects, transparent background, no ground or sky fill",
           },
@@ -194,7 +190,6 @@ Args:
             widthMultiplier: 5.0,
             transparent: true,
             speedFactor: 0.6,
-            provider: "openai",
             promptSuffix:
               "near-ground foreground details, close-up plants / rocks / debris, transparent background",
           },
@@ -204,7 +199,6 @@ Args:
             widthMultiplier: 2.0,
             transparent: true,
             speedFactor: 1.0,
-            provider: "openai",
             promptSuffix:
               "ground-level strip, terrain surface / floor details only, transparent background",
           },
@@ -214,7 +208,6 @@ Args:
             widthMultiplier: 4.0,
             transparent: true,
             speedFactor: 0.8,
-            provider: "openai",
             promptSuffix:
               "additional decorative layer, scattered floating elements, transparent background",
           },
@@ -230,7 +223,6 @@ Args:
           transparent: boolean;
           width: number;
           height: number;
-          provider: string;
         }
 
         const layerResults: LayerResult[] = [];
@@ -246,35 +238,18 @@ Args:
             `Horizontal seamless tileable, width ${layerW}px × height ${layerH}px. ` +
             `Clean 2D game asset. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
-          let rawBuffer: Buffer;
+          const callModel = "gpt-image-1-mini";
+          const openaiSize = nearestOpenAISize(layerW, layerH);
+          const callSize: string | undefined = openaiSize;
 
-          let callModel: string = "gpt-image-1-mini";
-          let callSize: string | undefined;
           const latency = startLatencyTracker();
-          if (layer.provider === "gemini") {
-            // 종횡비 계산 → Gemini aspectRatio
-            const ratio = layerW / layerH;
-            let aspectRatio: "1:1" | "3:4" | "4:3" | "9:16" | "16:9" = "1:1";
-            if (ratio >= 1.6) aspectRatio = "16:9";
-            else if (ratio >= 1.2) aspectRatio = "4:3";
-            else if (ratio <= 0.65) aspectRatio = "9:16";
-            else if (ratio <= 0.85) aspectRatio = "3:4";
-
-            const result = await generateImageGemini({ prompt, aspectRatio });
-            rawBuffer = base64ToBuffer(result.base64);
-            callModel = result.model;
-          } else {
-            // gpt-image-1 — 투명 배경
-            const openaiSize = nearestOpenAISize(layerW, layerH);
-            const result = await generateImageOpenAI({
-              prompt,
-              size: openaiSize,
-              quality: "medium",
-              background: "transparent",
-            });
-            rawBuffer = base64ToBuffer(result.base64);
-            callSize = openaiSize;
-          }
+          const result = await generateImageOpenAI({
+            prompt,
+            size: openaiSize,
+            quality: "medium",
+            background: layer.transparent ? "transparent" : "opaque",
+          });
+          const rawBuffer = base64ToBuffer(result.base64);
           const layerLatencyMs = latency.elapsed();
 
           // 목표 크기로 리사이즈
@@ -295,7 +270,7 @@ Args:
             id: generateAssetId(),
             type: "image",
             asset_type: "background",
-            provider: layer.provider === "gemini" ? `gemini-${callModel}` : "openai-gpt-image-1",
+            provider: "openai-gpt-image-1",
             prompt,
             file_path: filePath,
             file_name: path.basename(filePath),
@@ -322,7 +297,6 @@ Args:
             transparent: layer.transparent,
             width: layerW,
             height: layerH,
-            provider: asset.provider,
           });
         }
 

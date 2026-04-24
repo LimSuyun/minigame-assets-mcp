@@ -4,8 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
-import { generateImageOpenAI } from "../services/openai.js";
-import { editImageGemini } from "../services/gemini.js";
+import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
 import {
   ensureDir,
   saveBase64File,
@@ -182,7 +181,7 @@ export function registerLogoTools(server: McpServer): void {
 4. 게임 이름 텍스트를 SVG로 프로그래밍 합성 (하단 중앙)
    - 한글/영문 정확 렌더링
 
-**character_image_paths 제공 시**: 해당 캐릭터 이미지 스타일을 참고해 새 로고 생성 (Gemini 활용)
+**character_image_paths 제공 시**: 해당 캐릭터 이미지 스타일을 참고해 새 로고 생성 (gpt-image-2 edit 활용)
 
 Args:
   - game_name: 게임 이름 (로고 하단에 텍스트로 삽입)
@@ -251,21 +250,17 @@ Returns:
               art_style: params.art_style, theme: params.theme,
               color_scheme: scheme, custom_prompt: params.custom_prompt,
             });
-            const refs = charPaths.map((p) => ({
-              base64: fs.readFileSync(p).toString("base64"),
-              mimeType: "image/png" as const,
-            }));
-            const r = await editImageGemini({
-              imageBase64: refs[0].base64,
-              imageMimeType: refs[0].mimeType,
-              referenceImages: refs,
-              editPrompt: prompt,
+            const r = await editImageOpenAI({
+              imagePaths: charPaths,
+              prompt,
+              model: "gpt-image-2",
+              size: "1024x1024",
             });
             base64 = r.base64;
             revisedPrompt = prompt;
-            callModel = "gemini-2.5-flash-image";
+            callModel = "gpt-image-2";
             callKind = "edit";
-            refCount = refs.length;
+            refCount = charPaths.length;
           } else {
             const prompt = buildLogoPrompt({
               game_name: params.game_name, genre: params.genre,
@@ -309,7 +304,7 @@ Returns:
 
           saveAssetToRegistry({
             id: generateAssetId(), type: "image", asset_type: "logo",
-            provider: useCharRef ? "gemini" : "openai/gpt-image-1",
+            provider: useCharRef ? "openai/gpt-image-2" : "openai/gpt-image-1",
             prompt: revisedPrompt, file_path: finalPath, file_name: fileName,
             mime_type: written.format === "webp" ? "image/webp" : "image/png", created_at: new Date().toISOString(),
             metadata: {

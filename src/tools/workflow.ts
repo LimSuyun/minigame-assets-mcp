@@ -152,7 +152,7 @@ function buildExecutionPlanMd(
 
   const bgSteps = concept.backgrounds.length > 0
     ? concept.backgrounds.map((b, i) =>
-        `- [ ] **${i + 1}. ${b.name} (${b.id})**: \`asset_generate_image_gemini\` — asset_type: background`
+        `- [ ] **${i + 1}. ${b.name} (${b.id})**: \`asset_generate_screen_background\` — asset_type: background`
       ).join("\n")
     : "- 배경 없음";
 
@@ -193,7 +193,7 @@ function buildExecutionPlanMd(
 
 ### Step 2. 캐릭터 생성
 
-> **프로세스**: 정면 베이스 이미지(gpt-image-1) → 각 액션 스프라이트(Gemini 편집)
+> **프로세스**: 정면 베이스 이미지(gpt-image-2) → 각 액션 스프라이트(gpt-image-2 edit)
 
 ${charSteps}
 
@@ -209,7 +209,7 @@ ${weaponSteps}
 
 ### Step 4. 배경 생성
 
-> **프로세스**: Gemini Imagen으로 배경 이미지 생성
+> **프로세스**: gpt-image-2로 배경 이미지 생성
 
 ${bgSteps}
 
@@ -231,7 +231,7 @@ ${bgSteps}
 | \`asset_generate_character_base\` | 캐릭터 정면 베이스 생성 (gpt-image-2, 마젠타 크로마키 → 투명) |
 | \`asset_generate_sprite_sheet\` | 캐릭터 액션 스프라이트 시트 (gpt-image-2) |
 | \`asset_generate_weapons\` | 무기 아이콘 일괄 생성 (gpt-image-1, 투명) |
-| \`asset_generate_image_gemini\` | 배경 이미지 생성 (Gemini) |
+| \`asset_generate_screen_background\` | 배경 이미지 생성 |
 | \`asset_edit_character_design\` | 캐릭터 디자인 수정 후 자동 재생성 |
 | \`asset_remove_background\` | 배경 제거 (투명 PNG) |
 | \`asset_list_assets\` | 생성된 에셋 목록 조회 |
