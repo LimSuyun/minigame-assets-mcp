@@ -162,7 +162,7 @@ Args:
   - target_platform (string, optional): Target platform (e.g., "mobile", "PC", "web")
   - visual_references (string[], optional): Reference games or art styles for inspiration
   - music_style (string, optional): Music genre/style (e.g., "chiptune", "orchestral", "electronic")
-  - concept_file (string, optional): Path to save concept file (default: ./game-concept.json)
+  - concept_file (string, optional): Path to save concept file (default: ./.minigame-assets/game-concept.json)
 
 Returns:
   JSON with the saved concept details and file path.`,
@@ -230,7 +230,7 @@ Returns the game concept JSON that defines the visual and audio style for asset 
 If no concept exists, returns null with a suggestion to create one first.
 
 Args:
-  - concept_file (string, optional): Path to the concept JSON file (default: ./game-concept.json)
+  - concept_file (string, optional): Path to the concept JSON file (default: ./.minigame-assets/game-concept.json)
 
 Returns:
   The game concept object or null if not found.`,
@@ -377,7 +377,7 @@ Args:
   - backgrounds: 배경 목록 [{id, name, description}]
   - visual_references: 레퍼런스 게임/스타일 (선택)
   - music_style: 음악 스타일 (선택)
-  - output_file: CONCEPT.md 저장 경로 (기본: ./CONCEPT.md)
+  - output_file: CONCEPT.md 저장 경로 (기본: ./.minigame-assets/CONCEPT.md)
 
 Returns:
   생성된 CONCEPT.md 파일 경로와 에셋 통계.`,
@@ -409,7 +409,7 @@ Returns:
         })).default([]).describe("배경 목록"),
         visual_references: z.array(z.string()).optional().describe("레퍼런스 게임/스타일"),
         music_style: z.string().optional().describe("음악 스타일"),
-        output_file: z.string().optional().describe("CONCEPT.md 저장 경로 (기본: ./CONCEPT.md)"),
+        output_file: z.string().optional().describe("CONCEPT.md 저장 경로 (기본: ./.minigame-assets/CONCEPT.md)"),
       }).strict(),
       annotations: {
         readOnlyHint: false,

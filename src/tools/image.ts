@@ -85,7 +85,7 @@ Args:
   - size (string, optional): Image size - "1024x1024" (default), "1792x1024" (landscape), "1024x1792" (portrait)
   - quality (string, optional): "auto" (default) | "low" | "medium" | "high"
   - use_concept (boolean, optional): Whether to inject the current game concept into the prompt (default: true)
-  - concept_file (string, optional): Path to game concept file (default: ./game-concept.json)
+  - concept_file (string, optional): Path to game concept file (default: ./.minigame-assets/game-concept.json)
   - output_dir (string, optional): Output directory for the asset (default: ./.minigame-assets)
 
 Returns:

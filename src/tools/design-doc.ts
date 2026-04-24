@@ -193,7 +193,7 @@ Also extracts:
 - Estimated AI call count
 
 Args:
-  - design_file (string, optional): Path to GAME_DESIGN.json (default: ./GAME_DESIGN.json)
+  - design_file (string, optional): Path to GAME_DESIGN.json (default: ./.minigame-assets/GAME_DESIGN.json)
 
 Returns:
   Parsed GameDesign object with validation summary, asset list, and Stage recommendations`,
@@ -626,7 +626,7 @@ Returns:
   자동 추론 결과와 합집합으로 적용됩니다.
 
 Args:
-  - design_file (string, optional): Path to GAME_DESIGN.json (default: ./GAME_DESIGN.json)
+  - design_file (string, optional): Path to GAME_DESIGN.json (default: ./.minigame-assets/GAME_DESIGN.json)
 
 Returns:
   에셋 카테고리별 필요도 분석 결과 + 추론된 메카닉 목록 + Stage별 정리`,
@@ -766,7 +766,7 @@ Args:
   - design_file (string, optional): Path to GAME_DESIGN.json
   - size_spec_file (string, optional): Path to asset_size_spec.json
   - output_dir (string, optional): Output directory for generated assets
-  - output_plan_file (string, optional): Path for FULL_ASSET_PLAN.md (default: ./FULL_ASSET_PLAN.md)
+  - output_plan_file (string, optional): Path for FULL_ASSET_PLAN.md (default: ./.minigame-assets/FULL_ASSET_PLAN.md)
 
 Returns:
   Path to the generated FULL_ASSET_PLAN.md`,

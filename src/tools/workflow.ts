@@ -255,9 +255,9 @@ export function registerWorkflowTools(server: McpServer): void {
 4. 단계별 실행 계획 EXECUTION-PLAN.md 생성
 
 Args:
-  - concept_md (string, optional): CONCEPT.md 경로 (기본: ./CONCEPT.md)
+  - concept_md (string, optional): CONCEPT.md 경로 (기본: ./.minigame-assets/CONCEPT.md)
   - project_path (string, optional): 게임 프로젝트 경로 (엔진 감지용)
-  - output_file (string, optional): EXECUTION-PLAN.md 저장 경로 (기본: ./EXECUTION-PLAN.md)
+  - output_file (string, optional): EXECUTION-PLAN.md 저장 경로 (기본: ./.minigame-assets/EXECUTION-PLAN.md)
   - output_dir (string, optional): 에셋 출력 디렉토리 (기본: ./.minigame-assets)
 
 Returns:
