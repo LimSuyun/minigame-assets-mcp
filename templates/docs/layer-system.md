@@ -58,8 +58,10 @@
 | `asset_generate_effect_sheet` | GameScene **Layer 4** (이펙트) | 폭발·충격파 등 |
 | `asset_generate_tileset` | GameScene **Layer 1** (맵/타일) | 타일맵용 |
 | `asset_generate_ui_*` / `asset_generate_hud_set` | **UIScene** 또는 GameScene **Layer 5** | UI 씬 분리 권장 |
-| `asset_generate_app_logo` | Scene 외 (앱 아이콘·마케팅) | |
-| `asset_generate_thumbnail` | Scene 외 (스토어 썸네일) | |
+| `asset_generate_title_text` | Scene 외 (재사용 자산) | 워드마크 PNG — 로고/썸네일/로딩에 `title_text_image_path` 로 공유 |
+| `asset_generate_app_logo` | Scene 외 (앱 아이콘·마케팅) | 워드마크 + 캐릭터/대표 이미지 통합 합성 (Stage 6) |
+| `asset_generate_thumbnail` | Scene 외 (스토어 썸네일) | 배경·캐릭터 + 워드마크 통합 합성 (Stage 6) |
+| `asset_consolidate_registry` | — (마이그레이션) | 분산 sub-registry/sub-deploy-map 흡수 (옛 v3.0.x 정리) |
 
 ---
 

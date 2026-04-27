@@ -11,6 +11,7 @@
 | **플랫폼** | 플랫폼을 입력하세요 (mobile, PC, web 등) |
 | **엔진** | 게임 엔진을 입력하세요 (Phaser 3, Unity, Cocos Creator, Godot 등) |
 | **설명** | 게임 전체 설명 및 분위기 |
+| **name_slug** | (선택) ASCII 영문 슬러그 — 한글/공백이 들어간 game_name 시 강력 권장 (파일명·디렉터리 안전화). 예: "dongtoesa" |
 
 ---
 
@@ -108,15 +109,25 @@
 
 ### 캐릭터 생성 순서
 1. `asset_generate_character_base` — 정면 베이스 생성 (gpt-image-2, 마젠타 크로마키 → 투명)
-2. `asset_generate_sprite_sheet` — 각 액션별 프레임 생성 (gpt-image-2 edit, chroma_key_bg: magenta 권장)
+2. `asset_generate_sprite_sheet` — 각 액션별 프레임 생성 (gpt-image-2 edit, **Sequential anchor+prev** 패턴, 액션별 5+ 프레임 매트릭스, `chroma_key_bg: magenta` 권장)
 
 ### 무기/투사체 생성
 1. `asset_generate_weapons` — 투명 배경 아이콘 생성 (gpt-image-1, 네이티브 투명)
 
 ### 배경 생성
-1. `asset_generate_screen_background` — static: gpt-image-2 (기본) / parallax: provider: "gemini" 권장 (투명 레이어)
+1. `asset_generate_screen_background` — gpt-image-2, **spec-aware** (`target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 + sharp cover-crop). parallax 투명 레이어는 gpt-image-1 네이티브 투명
+
+### 마케팅 (Stage 6 — 마지막 단계)
+> 캐릭터·배경 PNG 가 모두 준비된 뒤 호출. 워드마크는 한 번 만들어 모든 마케팅 산출물에 재사용.
+1. `asset_generate_title_text` — 타이틀 워드마크 PNG 단독 생성 (재사용 자산)
+2. `asset_generate_app_logo` — 캐릭터/대표 + 워드마크 합성 (gpt-image-2 edit)
+3. `asset_plan_thumbnail` → `asset_generate_thumbnail` — 배경·캐릭터 + 워드마크 합성
 
 ### 에셋 검증
-1. `asset_validate` — 네이밍 규칙 + 파일 스펙 검사
+1. `asset_validate` — 네이밍 규칙 + 파일 스펙 + **비율 호환성** (`size_spec_file` 지정 시) 검사
 2. `asset_list_missing` — 누락 파일 확인
 3. `asset_generate_atlas_json` — 스프라이트 시트 Atlas JSON 생성
+
+### 배포 (옛 v3.0.x 프로젝트 마이그레이션 시)
+1. `asset_consolidate_registry` — 분산 sub-registry / sub-deploy-map 흡수
+2. `asset_approve` → `asset_deploy` — `auto_fill_targets: true` 기본으로 spec 자동 채움

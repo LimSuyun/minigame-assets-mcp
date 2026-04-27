@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_OUTPUT_DIR } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_ASSET_SIZE_SPEC_FILE } from "../constants.js";
 import { ensureDir } from "../utils/files.js";
 import {
   loadDeployMap,
@@ -16,6 +16,71 @@ import {
   type DeployTarget,
   type DeployFormat,
 } from "../utils/deploy-map.js";
+import {
+  loadSizeSpecFile,
+  inferSpecKeyFromPath,
+  lookupSpecEntry,
+  specEntryToDeployTarget,
+} from "../utils/size-spec.js";
+import type { AssetSizeSpecFile } from "../types.js";
+
+// ─── deploy_targets 자동 추론 (spec auto-fallback) ───────────────────────────
+//
+// entry.deploy_targets 가 비어있을 때 asset_size_spec.json + 자산 경로 패턴으로
+// 합리적 deploy target 한 개를 추론한다. 사용자가 명시적으로 채우는 흐름을 막지 않으며,
+// in-memory 로만 채워서 사용 (deploy-map.json 영구 저장은 안 함).
+
+interface AutoFillContext {
+  spec: AssetSizeSpecFile | null;
+  specPath: string;
+}
+
+function autoFillDeployTarget(
+  entryKey: string,
+  ctx: AutoFillContext,
+): { target: DeployTarget; reason: string } | null {
+  if (!ctx.spec) return null;
+  const inferred = inferSpecKeyFromPath(entryKey);
+  if (!inferred) return null;
+  const specEntry = lookupSpecEntry(ctx.spec.specs, inferred);
+  if (!specEntry) return null;
+
+  // 합리적 deploy 경로 선택 — entry key 의 파일명을 보존하고, public/assets/<카테고리>/ 하위로
+  const fileName = path.basename(entryKey);
+  const categoryDir = inferred.category === "characters"
+    ? "characters"
+    : inferred.category === "backgrounds"
+      ? "backgrounds"
+      : inferred.category === "tiles"
+        ? "tilesets"
+        : inferred.category === "ui"
+          ? "ui"
+          : inferred.category === "effects"
+            ? "effects"
+            : inferred.category === "marketing"
+              ? "marketing"
+              : "misc";
+
+  // 출력 포맷: 마스터의 확장자를 따르되, png 안전 기본
+  const ext = path.extname(fileName).toLowerCase();
+  const fmt: "png" | "webp" | "jpeg" =
+    ext === ".webp" ? "webp" : ext === ".jpg" || ext === ".jpeg" ? "jpeg" : "png";
+
+  const targetPath = `public/assets/${categoryDir}/${fileName}`;
+  const target = specEntryToDeployTarget(specEntry, {
+    path: targetPath,
+    fileName,
+    fit: inferred.category === "characters" || inferred.key.startsWith("icon")
+      ? "contain"
+      : "cover",
+    format: fmt,
+    categoryHint: categoryDir,
+  });
+  return {
+    target,
+    reason: `${inferred.category}.${inferred.key} (${specEntry.width}x${specEntry.height})`,
+  };
+}
 
 function resolveEntries(
   requested: string[] | "all" | undefined,
@@ -162,16 +227,26 @@ Returns:
 **재확정 요구**: master_hash ≠ approved_hash 면 스킵하고 needs_reapproval 에 보고. asset_approve 를 다시 호출해야 배포됩니다.
 **Idempotent**: 대상 경로에 이미 동일 바이트가 있으면 재작성하지 않습니다 (mtime 유지).
 
+**Spec auto-fallback (v3.1.0+)**:
+\`auto_fill_targets\` (기본 true) 이고 \`deploy_targets\` 가 비어있으면:
+- \`asset_size_spec.json\` 을 로드해 자산 경로 패턴 → spec 카테고리·키 자동 추론
+- spec 사이즈로 \`public/assets/<카테고리>/<파일명>\` 경로의 deploy target 1개 자동 채움 (in-memory)
+- deploy-map.json 영구 저장은 안 함 — 사용자가 \`asset_autofill_deploy_targets\` 같은 명시 도구로 확정 가능
+- \`dry_run: true\` 시 추론 결과를 미리 보여줌
+
 Args:
   - project_root (string, optional): deploy_targets[].path 의 기준 루트 (default: cwd)
   - output_dir (string, optional): 마스터 저장 디렉터리 (default: ./.minigame-assets)
   - dry_run (boolean, optional): 실제 복사 없이 계획만 출력 (default: false)
   - force (boolean, optional): approved 체크 무시 (default: false — 테스트용)
   - entries (string[], optional): 특정 엔트리만 배포 (생략 시 모든 approved 엔트리)
+  - auto_fill_targets (boolean, optional): deploy_targets 비었을 때 spec 자동 추론 (default: true)
+  - size_spec_file (string, optional): asset_size_spec.json 경로 (default: ./.minigame-assets/asset_size_spec.json)
 
 Returns:
-  deployed: [{entry, target, width, height, bytes}]
+  deployed: [{entry, target, width, height, bytes, auto_filled?}]
   skipped: [{entry, target, reason}]   (not_approved | needs_reapproval | no_targets | unchanged | missing_master)
+  auto_filled: [{entry, target, spec_reason}]  — auto_fill 로 채워진 항목들
   warnings: string[]`,
       inputSchema: z.object({
         project_root: z.string().optional(),
@@ -179,6 +254,8 @@ Returns:
         dry_run: z.boolean().optional(),
         force: z.boolean().optional(),
         entries: z.array(z.string()).optional(),
+        auto_fill_targets: z.boolean().optional(),
+        size_spec_file: z.string().optional(),
       }).shape,
     },
     async (params) => {
@@ -186,14 +263,23 @@ Returns:
       const projectRoot = params.project_root ?? process.cwd();
       const dryRun = params.dry_run ?? false;
       const force = params.force ?? false;
+      const autoFillTargets = params.auto_fill_targets ?? true;
+
+      // size_spec auto-fallback 컨텍스트 (한 번만 로드)
+      const specPath = params.size_spec_file ?? DEFAULT_ASSET_SIZE_SPEC_FILE;
+      const autoCtx: AutoFillContext = {
+        spec: autoFillTargets ? loadSizeSpecFile(specPath) : null,
+        specPath,
+      };
 
       const map = loadDeployMap(outputDir);
       const keys = params.entries && params.entries.length > 0
         ? params.entries
         : Object.keys(map.entries);
 
-      const deployed: Array<{ entry: string; target: string; width: number; height: number; bytes: number }> = [];
+      const deployed: Array<{ entry: string; target: string; width: number; height: number; bytes: number; auto_filled?: boolean }> = [];
       const skipped: Array<{ entry: string; target?: string; reason: string }> = [];
+      const autoFilledList: Array<{ entry: string; target: string; spec_reason: string; width: number; height: number; fit?: string; format?: string }> = [];
       const warnings: string[] = [];
 
       for (const key of keys) {
@@ -221,13 +307,35 @@ Returns:
           continue;
         }
 
-        if (entry.deploy_targets.length === 0) {
-          skipped.push({ entry: key, reason: "no_targets" });
-          continue;
+        // ── deploy_targets 결정 (사용자 지정 > spec auto-fallback) ─────────
+        let effectiveTargets: DeployTarget[] = entry.deploy_targets;
+        const wasAutoFilled = entry.deploy_targets.length === 0 && autoFillTargets;
+        if (effectiveTargets.length === 0) {
+          if (autoFillTargets) {
+            const auto = autoFillDeployTarget(key, autoCtx);
+            if (auto) {
+              effectiveTargets = [auto.target];
+              autoFilledList.push({
+                entry: key,
+                target: auto.target.path,
+                spec_reason: auto.reason,
+                width: auto.target.width,
+                height: auto.target.height,
+                fit: auto.target.fit,
+                format: auto.target.format,
+              });
+            } else {
+              skipped.push({ entry: key, reason: "no_targets" });
+              continue;
+            }
+          } else {
+            skipped.push({ entry: key, reason: "no_targets" });
+            continue;
+          }
         }
 
         const currentHash = hashFile(masterAbs);
-        for (const target of entry.deploy_targets) {
+        for (const target of effectiveTargets) {
           if (dryRun) {
             deployed.push({
               entry: key,
@@ -235,6 +343,7 @@ Returns:
               width: target.width,
               height: target.height,
               bytes: 0,
+              ...(wasAutoFilled ? { auto_filled: true } : {}),
             });
             continue;
           }
@@ -242,14 +351,18 @@ Returns:
           try {
             const res = await resizeAndWrite(masterAbs, target, projectRoot);
             if (res.deployed) {
-              target.last_deployed_at = new Date().toISOString();
-              target.last_deployed_hash = currentHash ?? undefined;
+              // 사용자가 영구 저장한 target 만 갱신 (auto_filled 는 in-memory)
+              if (!wasAutoFilled) {
+                target.last_deployed_at = new Date().toISOString();
+                target.last_deployed_hash = currentHash ?? undefined;
+              }
               deployed.push({
                 entry: key,
                 target: target.path,
                 width: target.width,
                 height: target.height,
                 bytes: res.bytes,
+                ...(wasAutoFilled ? { auto_filled: true } : {}),
               });
             } else {
               skipped.push({ entry: key, target: target.path, reason: "unchanged" });
@@ -268,10 +381,14 @@ Returns:
           text: JSON.stringify({
             dry_run: dryRun,
             force,
+            auto_fill_targets: autoFillTargets,
+            size_spec_loaded: !!autoCtx.spec,
+            ...(autoCtx.spec ? { size_spec_file: autoCtx.specPath } : {}),
             deployed,
             skipped,
+            auto_filled: autoFilledList,
             warnings,
-            summary: `${deployed.length} deployed, ${skipped.length} skipped, ${warnings.length} warnings`,
+            summary: `${deployed.length} deployed, ${skipped.length} skipped, ${autoFilledList.length} auto-filled, ${warnings.length} warnings`,
           }, null, 2),
         }],
       };

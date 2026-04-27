@@ -55,8 +55,8 @@ asset_generate_character_base
 | 3 | `asset_generate_character_base` | gpt-image-2 | 마젠타 크로마키 → 투명, `role` 파라미터 활용 |
 | 3.5 | `asset_generate_character_equipped` | gpt-image-2 edit | 장비 착용 베이스 합성 (선택) |
 | 4 | `asset_generate_weapons` | gpt-image-1 | 네이티브 투명 배경 |
-| 5 | `asset_generate_sprite_sheet` | gpt-image-2 edit | 1행 가로 스트립 기본, `chroma_key_bg: "magenta"` |
-| 6 | `asset_generate_screen_background` / `_loading_screen` / `_lobby_screen` | gpt-image-2 | parallax 레이어는 Gemini |
+| 5 | `asset_generate_sprite_sheet` | gpt-image-2 edit | **Sequential anchor+prev** 패턴 기본 (각 프레임이 anchor + 직전 프레임 두 reference 로 합성 → 디자인 동결 + 모션 연속성). 디폴트 `frames_per_action: 5`, 액션별 매트릭스 (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6). 첫 프레임 자동 quality_check. `auto_compose_sheet: true` 기본 → `_sheet.{webp\|png}` 자동 생성. 옛 동작 원하면 `sequential_mode: "off"` |
+| 6 | `asset_generate_screen_background` / `_loading_screen` / `_lobby_screen` | gpt-image-2 | **spec-aware** — `target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용. parallax 레이어는 gpt-image-1 (네이티브 투명) |
 | 7 | `asset_generate_app_logo`, `asset_plan_thumbnail` → `asset_generate_thumbnail` | — | 마케팅 — **반드시 캐릭터·배경·타이틀 텍스트 PNG가 준비된 뒤** 호출. `character_image_paths` / `background_image_path` / `title_text_image_path` 를 함께 넘기면 재사용·일관성 보장 |
 | 8 | `asset_review`, `asset_validate`, `asset_list_missing`, `asset_generate_atlas_json` | — | 품질 검토 + Atlas |
 | 9 | `asset_approve` → `asset_deploy` | — | 승인된 마스터만 코드 경로로 리사이즈 복사 |

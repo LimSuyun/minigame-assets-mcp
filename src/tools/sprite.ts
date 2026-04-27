@@ -89,6 +89,169 @@ function buildActionEditPrompt(poseDescription: string, characterHint?: string):
   );
 }
 
+// ─── Sequential 프레임 (Anchor + Prev) 패턴 헬퍼 ─────────────────────────────
+//
+// 시퀀스 모드 전용. 각 프레임이 (a) 디자인 anchor 와 (b) 직전 프레임 두 reference
+// 를 동시에 받아 디자인 동결 + 모션 연속성을 동시에 확보한다.
+
+/**
+ * 액션별 디폴트 프레임 수 — 의미 있는 애니메이션 사이클을 위한 권장값.
+ * 사용자가 frames_per_action 또는 prompt_file 로 명시하지 않을 때 사용.
+ */
+export const ACTION_FRAME_DEFAULTS: Record<string, number> = {
+  idle:   5,
+  walk:   6,
+  run:    6,
+  jump:   5,
+  attack: 5,
+  hurt:   5,
+  die:    6,
+};
+
+/** 시퀀스 모드 글로벌 최소 프레임 (사용자 직접 지정도 이 값 미만으로 강등되진 않음). */
+export const SEQUENTIAL_MIN_FRAMES = 5;
+
+/**
+ * 액션·프레임 위치별 모션 단계 묘사. 모델에게 "30% through" 같은 모호한 비율 대신
+ * 구체적 단계 (wind-up, mid-stride, impact 등) 를 제공해 일관성 향상.
+ */
+function describeMotionStage(action: string, frameIdx: number, total: number): string {
+  if (total <= 1) return "static pose";
+  const ratio = frameIdx / (total - 1);
+  switch (action) {
+    case "walk":
+      if (ratio < 0.2) return "left foot starting to step forward, weight on right";
+      if (ratio < 0.4) return "left foot mid-step, body weight transferring forward";
+      if (ratio < 0.6) return "weight centered, both feet near ground";
+      if (ratio < 0.8) return "right foot starting to step forward, weight on left";
+      return "right foot mid-step, returning toward starting cycle";
+    case "run":
+      if (ratio < 0.2) return "left foot push-off, body forward lean";
+      if (ratio < 0.4) return "airborne phase, both feet off ground";
+      if (ratio < 0.6) return "right foot strike, knee bent absorbing impact";
+      if (ratio < 0.8) return "right foot push-off";
+      return "left foot strike, returning toward cycle start";
+    case "jump":
+      if (ratio < 0.2) return "crouch wind-up, knees bent deep";
+      if (ratio < 0.4) return "leaping upward, legs extending";
+      if (ratio < 0.6) return "peak of jump, body slightly curled";
+      if (ratio < 0.8) return "descending, legs preparing to land";
+      return "landing, knees absorbing impact";
+    case "attack":
+      if (ratio < 0.2) return "wind-up, weapon or arm pulled back for strike";
+      if (ratio < 0.4) return "swing trajectory, weapon mid-motion";
+      if (ratio < 0.6) return "impact moment, peak force";
+      if (ratio < 0.8) return "follow-through after the hit";
+      return "recovery to neutral stance";
+    case "hurt":
+      if (ratio < 0.25) return "moment of impact, body recoiling backward";
+      if (ratio < 0.5) return "leaning back, arms up defensively, grimacing";
+      if (ratio < 0.75) return "starting to recover, weight returning forward";
+      return "back to balanced stance, slightly tensed";
+    case "die":
+      if (ratio < 0.2) return "first impact, body buckling";
+      if (ratio < 0.4) return "knees giving way, falling forward";
+      if (ratio < 0.6) return "body falling, arms loose";
+      if (ratio < 0.8) return "near ground, body collapsed";
+      return "rest on ground, completely limp";
+    case "idle":
+    default:
+      if (ratio < 0.2) return "neutral baseline stance";
+      if (ratio < 0.4) return "subtle inhale, chest slightly raised";
+      if (ratio < 0.6) return "weight shifting slightly to one side";
+      if (ratio < 0.8) return "exhale, chest lowering";
+      return "returning to baseline";
+  }
+}
+
+interface SequentialPromptArgs {
+  action: string;
+  frameIdx: number;
+  totalFrames: number;
+  isFirst: boolean;
+  characterHint?: string;
+  customAction?: string; // 프리셋 외 액션 이름이면 그대로 사용
+}
+
+/**
+ * Sequential anchor+prev 프롬프트 빌더.
+ *  - isFirst=true: 1개 reference (anchor) — 시퀀스 시작 포즈 생성
+ *  - isFirst=false: 2개 reference (anchor + prev) — 디자인 동결 + 모션 연속
+ */
+function buildSequentialFramePrompt(args: SequentialPromptArgs): string {
+  const { action, frameIdx, totalFrames, isFirst, characterHint } = args;
+  const isPreset = DEFAULT_ACTIONS.includes(action as DefaultAction);
+  const poseDesc = isPreset ? ACTION_PROMPTS[action as DefaultAction] : action;
+  const stage = describeMotionStage(action, frameIdx, totalFrames);
+  const progressPct = totalFrames > 1
+    ? Math.round((frameIdx / (totalFrames - 1)) * 100)
+    : 0;
+
+  const framingRules =
+    `FRAMING (mandatory): the ENTIRE body — top of head to tips of feet — must be fully visible, ` +
+    `never clipped. Character ≤ 70% of image height, ≥ 15% margin top and bottom. ` +
+    `Same camera distance and framing as the references.`;
+
+  const bgRules = `${WHITE_BG_PROMPT}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
+
+  if (isFirst) {
+    return [
+      `Generate Frame 1 of ${totalFrames} for the "${action}" animation cycle.`,
+      `This is the STARTING pose of the cycle: ${poseDesc} (${stage}).`,
+      ``,
+      `Redraw the character from the reference image EXACTLY — preserve face, body shape, proportions, outfit, colors, accessories.`,
+      `Only the pose changes from the reference. Nothing is added or removed.`,
+      characterHint ? `Character description: ${characterHint}.` : "",
+      ``,
+      framingRules,
+      bgRules,
+    ].filter(Boolean).join(" ");
+  }
+
+  return [
+    `Generate Frame ${frameIdx + 1} of ${totalFrames} for the "${action}" animation cycle.`,
+    `Pose progress: ${progressPct}% — ${stage}.`,
+    ``,
+    `INPUTS:`,
+    `- FIRST reference image is the CHARACTER ANCHOR. Use it ONLY to preserve every visual detail of the character: face, body shape and proportions, outfit and colors, accessories. The character design must be IDENTICAL to this reference, regardless of the second reference's quality.`,
+    `- SECOND reference image is the IMMEDIATELY PREVIOUS FRAME of this same animation cycle. Use it ONLY to determine the smooth motion transition. Advance the pose by a SMALL natural step from this previous state — do not skip stages.`,
+    ``,
+    `Target pose for this frame: ${poseDesc} at the "${stage}" stage.`,
+    `Progress smoothly from the previous frame; the pose should look like a single tween step forward in time, not a fresh redraw.`,
+    characterHint ? `Character description: ${characterHint}.` : "",
+    ``,
+    framingRules,
+    bgRules,
+  ].filter(Boolean).join(" ");
+}
+
+/**
+ * 처리된 transparent buffer 를 단색 배경(보통 magenta) 위에 합성해 임시 PNG 로 저장.
+ * 다음 sequential 프레임 호출의 reference 로 사용된다.
+ */
+async function writeBufferOnSolidBgToTmp(
+  buf: Buffer,
+  bgColor: [number, number, number],
+  outPath: string,
+): Promise<void> {
+  const { default: sharp } = await import("sharp");
+  const meta = await sharp(buf).metadata();
+  const w = meta.width ?? 1024;
+  const h = meta.height ?? 1024;
+  const composed = await sharp({
+    create: {
+      width: w,
+      height: h,
+      channels: 4,
+      background: { r: bgColor[0], g: bgColor[1], b: bgColor[2], alpha: 1 },
+    },
+  })
+    .composite([{ input: buf, blend: "over" }])
+    .png()
+    .toBuffer();
+  fs.writeFileSync(outPath, composed);
+}
+
 const TRANSPARENCY_SUFFIX = ` ${WHITE_BG_PROMPT}.`;
 
 // 크로마키 색상 목록 (캐릭터에 사용되지 않을 색상 권장)
@@ -593,49 +756,73 @@ Returns:
   server.registerTool(
     "asset_generate_sprite_sheet",
     {
-      title: "Generate Full Sprite Sheet (gpt-image-2 Edit)",
+      title: "Generate Full Sprite Sheet (gpt-image-2 Edit, Sequential Anchor+Prev)",
       description: `Generate a complete sprite sheet by creating multiple action frame sprites
 from a base character image using OpenAI gpt-image-2 image editing, then export in game engine formats.
 
 **Target Layer**: GameScene **Layer 2 (유닛 애니메이션)** — 생성된 프레임들은 런타임에 depth 2로 렌더링.
+
+**신규 시퀀스 패턴 (sequential_mode: "anchor_prev", 기본값)**:
+  각 프레임이 두 reference 를 동시에 받습니다 —
+  (a) anchor (= pose_image ?? base_character_path): 디자인 동결
+  (b) 직전 프레임: 모션 연속성
+  → 디자인이 흔들리지 않으면서 자연스러운 모션 곡선 형성. 5+ 프레임에서도 drift 누적 ~2% 이내.
+
+  첫 프레임은 anchor 1개 reference 로만 시작 (시퀀스의 시작 포즈).
+  두 번째 프레임부터는 [anchor, prev] 두 reference 로 자연스럽게 이어집니다.
+  액션 단위는 병렬 처리되지만 액션 내부는 직전 프레임 의존성 때문에 직렬입니다.
+
+**디폴트 프레임 수 결정 (우선순위 순)**:
+  1) prompt_file 객체 맵의 액션별 frames
+  2) 도구 명시 인자 frames_per_action
+  3) prompt_file 글로벌 frames_per_action
+  4) sequential_mode='anchor_prev' 일 때 액션별 매트릭스 (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6)
+     sequential_mode='off' 일 때 1 (옛 디폴트)
+  sequential_mode='anchor_prev' 에서는 모든 결과를 max(value, 5) 로 강등 보호 (의미 있는 애니메이션 보장).
 
 All action sprites are generated via gpt-image-2 edit to preserve the original
 character's colors, proportions, and art style. gpt-image-2는 투명 배경을 지원하지 않으므로
 내부적으로 단색 배경(마젠타 권장) 위에 편집 후 크로마키로 제거합니다.
 
 **Performance note**: gpt-image-2는 편집 요청당 ~30-60초 소요.
-7액션 × 1프레임 기본 세트 기준 ~5분, 다프레임 애니메이션은 더 오래 걸립니다.
+신규 시퀀스 패턴 + 5프레임 디폴트 기준: 1캐릭터 7액션 ≈ 35콜, 액션 간 병렬·액션 내 직렬 처리로 5~10분 소요.
+비용은 ~$1.5~2.0/캐릭터 수준 (구 1프레임 기본 대비 5×).
+시퀀스가 부담스러우면 sequential_mode: "off" 로 옛 독립 패턴 사용 (병렬 가능, 일관성↓).
 
-**Pose-First Pattern (권장):**
+**Pose-First Pattern (권장)**:
   1. asset_generate_character_base → 베이스 캐릭터 생성
   2. (선택) asset_generate_character_pose → 포즈 승인 이미지 생성
   3. asset_generate_sprite_sheet (pose_image 파라미터) → 포즈 이미지 기준으로 시트 생성
-  pose_image를 제공하면 편집 기준 이미지가 base_character_path 대신 pose_image로 교체됩니다.
+  pose_image를 제공하면 편집 기준(=anchor)이 base_character_path 대신 pose_image로 교체됩니다.
   base_character_path는 메타데이터/매니페스트 참조용으로만 사용됩니다.
 
 Args:
   - base_character_path (string): File path to the base character image (메타데이터 참조용)
   - pose_image (string, optional): Pose-First 패턴용. 포즈 승인 이미지 경로.
-      제공 시 편집 기준 이미지로 사용 (base_character_path 대체).
-      asset_generate_character_pose로 생성한 포즈 이미지를 넣으세요.
+      제공 시 anchor 로 사용 (base_character_path 대체).
   - character_name (string): Character identifier for file naming and manifest
-  - actions (string[], optional): Actions to generate.
-      Presets: "idle", "walk", "run", "jump", "attack", "hurt", "die"
-      Default: all 7 presets
-  - frames_per_action (number, optional): Frames per action for animation (default: 1, max: 8)
+  - actions (string[], optional): Actions to generate. Default: all 7 presets.
+  - frames_per_action (number, optional, max 8): 미명시 시 sequential_mode='anchor_prev' 에서는 액션별 매트릭스
+      (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6), 'off' 에서는 1.
+      sequential_mode='anchor_prev' 에서는 글로벌 최소 5 강제.
   - custom_action_prompts (object, optional): Override edit prompts per action.
-      Example: { "attack": "Character shooting a laser beam from their hand" }
-  - export_formats (string[], optional): Engine-specific export formats to generate.
-      "individual" — individual PNG files only (always included)
-      "phaser"     — sprite sheet PNG + Phaser 3 texture atlas JSON
-      "cocos"      — sprite sheet PNG + Cocos Creator .plist (Cocos2d format)
-      "unity"      — sprite sheet PNG + Unity slice JSON (TexturePacker compatible)
-      Default: ["individual"]
-  - sheet_padding (number, optional): Pixel gap between frames in the sheet (default: 0)
-  - output_dir (string, optional): Output directory
+  - sequential_mode (string, optional): "anchor_prev" (기본) — 직전 프레임을 reference 로 함께 투입.
+      "off" — 옛 독립 패턴 (각 프레임이 anchor 만 reference, 액션 내 병렬 가능).
+  - first_frame_quality_check (boolean, optional, default true): 첫 프레임만 자동 Claude Vision 검증
+      + 미달 시 OpenAI fallback. 시퀀스의 토대를 보호합니다.
+  - quality_check (boolean, optional, default false): 모든 프레임에 대한 검증.
+      first_frame_quality_check 와 독립적.
+  - auto_compose_sheet (boolean, optional, default true): 개별 PNG에 더해 합성 시트 자동 생성.
+  - export_formats (string[], optional): Engine-specific export formats.
+      "individual" / "phaser" / "cocos" / "unity". Default: ["individual", "phaser"].
+  - sheet_padding (number, optional): Pixel gap between frames (default: 0)
+  - sheet_cols (number, optional): 미지정 시 1행 가로 스트립
+  - frame_padding (number, optional): Padding around each frame (default: 20)
+  - chroma_key_bg (string, optional): 마젠타 권장
+  - output_dir (string, optional)
 
 Returns:
-  Individual frame files + composed sprite sheet(s) + engine-specific metadata files.
+  Individual frame files + composed sprite sheet + engine-specific metadata files.
   Output: {output_dir}/sprites/{character_name}/`,
       inputSchema: z.object({
         base_character_path: z.string().min(1).describe("Path to base character image file (메타데이터/매니페스트 참조용. pose_image 제공 시 편집에 사용되지 않음)"),
@@ -650,15 +837,21 @@ Returns:
         actions: z.array(z.string()).min(1).max(20)
           .default(["idle", "walk", "run", "jump", "attack", "hurt", "die"])
           .describe("Actions to generate (overrides prompt_file if set)"),
-        frames_per_action: z.number().int().min(1).max(8).default(1)
-          .describe("Frames per action (1=single, 2+=animation cycle)"),
+        frames_per_action: z.number().int().min(1).max(8).optional()
+          .describe("Frames per action. 미명시 시 sequential_mode='anchor_prev' 에서는 액션별 매트릭스 (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6), 'off' 에서는 1. prompt_file 객체 맵의 액션별 frames 가 더 우선."),
+        sequential_mode: z.enum(["anchor_prev", "off"]).default("anchor_prev")
+          .describe("'anchor_prev' (기본): 직전 프레임을 reference 로 함께 투입해 모션 연속성 확보 + anchor 로 디자인 동결. 'off': 옛 독립 패턴 (액션 내 병렬 가능)."),
+        first_frame_quality_check: z.boolean().default(true)
+          .describe("첫 프레임만 자동 Claude Vision 검증 + 미달 시 OpenAI fallback. 시퀀스의 토대를 보호합니다."),
+        auto_compose_sheet: z.boolean().default(true)
+          .describe("true 면 개별 PNG에 더해 합성 시트 (_sheet.{webp|png}) 를 자동 생성. export_formats 의 atlas/plist/unity 는 별도 옵션."),
         custom_action_prompts: z.record(z.string()).optional()
-          .describe("Override edit prompts per action: { action_name: edit_prompt } (merges with prompt_file)"),
+          .describe("Override edit prompts per action: { action_name: edit_prompt } (merges with prompt_file). sequential_mode 에서는 첫 프레임이든 직전+anchor 컨텍스트든 동일하게 적용됩니다."),
         edit_model: z.string().optional()
           .describe("OpenAI model for image editing (default: gpt-image-2). gpt-image-1 계열도 사용 가능하나 gpt-image-2가 품질 최고."),
         export_formats: z.array(z.enum(["individual", "phaser", "cocos", "unity"]))
-          .default(["individual"])
-          .describe("Engine export formats: phaser / cocos / unity"),
+          .default(["individual", "phaser"])
+          .describe("Engine export formats: phaser / cocos / unity. 기본은 individual + phaser atlas json. Unity 사용자는 'unity' 추가."),
         sheet_padding: z.number().int().min(0).max(64).default(0)
           .describe("Pixel padding between frames in the composed sheet"),
         sheet_cols: z.number().int().min(1).optional()
@@ -742,10 +935,20 @@ Returns:
           ? params.actions
           : (fileActions ?? params.actions);
 
-      const defaultFramesPerAction: number =
-        params.frames_per_action !== 1
-          ? params.frames_per_action
-          : (spriteConfig.frames_per_action ?? 1);
+      // 액션별 프레임 수 결정 — 명시적 우선순위
+      // 1) prompt_file 객체 맵의 액션별 frames
+      // 2) 도구 명시 인자 (params.frames_per_action — 사용자가 의도적으로 줬을 때만)
+      // 3) prompt_file 글로벌 (spriteConfig.frames_per_action)
+      // 4) sequential_mode 매트릭스 (idle:5, walk:6, ...) 또는 옛 디폴트 1
+      // sequential_mode='anchor_prev' 에서는 모든 결과를 max(value, SEQUENTIAL_MIN_FRAMES) 로 강등 보호.
+      const resolveActionFrameCount = (action: string, sequential: boolean): number => {
+        const apply = (v: number) => sequential ? Math.max(v, SEQUENTIAL_MIN_FRAMES) : v;
+        if (perActionFrames[action] != null) return apply(perActionFrames[action]);
+        if (params.frames_per_action != null) return apply(params.frames_per_action);
+        if (spriteConfig.frames_per_action != null) return apply(spriteConfig.frames_per_action);
+        if (sequential) return ACTION_FRAME_DEFAULTS[action] ?? SEQUENTIAL_MIN_FRAMES;
+        return 1;
+      };
 
       // 커스텀 프롬프트: 객체 맵 프롬프트 < custom_action_prompts < 파라미터
       const effectiveCustomPrompts: Record<string, string> = {
@@ -819,157 +1022,269 @@ Returns:
       );
       fs.writeFileSync(tmpEditPath, Buffer.from(compositedBase64, "base64"));
 
-      const results: Array<{
+      type FrameResult = {
         action: string;
         frame_index: number;
         success: boolean;
         file_path?: string;
         error?: string;
-      }> = [];
+        quality?: {
+          passed: boolean;
+          issues: string[];
+          fallback_used: boolean;
+          provider: string;
+        };
+      };
 
-      // 각 액션, 각 프레임 순서대로 생성
-      for (const action of effectiveActions) {
-        manifest.animations[action] = [];
+      const sequentialMode: "anchor_prev" | "off" = params.sequential_mode ?? "anchor_prev";
+      const tmpDirForPrev = process.env["TMPDIR"] || "/tmp";
 
-        // 액션별 프레임 수: 객체 맵에 지정된 값 > 전체 기본값
-        const actionFrameCount = perActionFrames[action] ?? defaultFramesPerAction;
+      // 각 프레임의 결과를 모아서 액션별로 정렬되도록 키로 보관 (병렬 처리용)
+      type ActionOutput = {
+        action: string;
+        frames: SpriteFrame[];
+        frameNames: string[]; // animation 매핑용
+        results: FrameResult[];
+      };
 
-        for (let frameIdx = 0; frameIdx < actionFrameCount; frameIdx++) {
-          const isPreset = DEFAULT_ACTIONS.includes(action as DefaultAction);
-          const poseDesc = isPreset
-            ? ACTION_PROMPTS[action as DefaultAction]
-            : action;
+      // 단일 프레임 처리 — 호출처에서 anchor/prev 결정 후 호출
+      const processOneFrame = async (args: {
+        action: string;
+        frameIdx: number;
+        actionFrameCount: number;
+        imagePaths: string[];           // [anchor] 또는 [anchor, prev]
+        isFirstFrame: boolean;
+      }): Promise<{ result: FrameResult; frame?: SpriteFrame; processedBuffer?: Buffer; promptUsed?: string }> => {
+        const { action, frameIdx, actionFrameCount, imagePaths, isFirstFrame } = args;
+        const isPreset = DEFAULT_ACTIONS.includes(action as DefaultAction);
+        const poseDesc = isPreset ? ACTION_PROMPTS[action as DefaultAction] : action;
 
+        // 프롬프트 결정 — 사용자 custom > sequential builder > 옛 builder
+        let prompt: string;
+        if (effectiveCustomPrompts?.[action]) {
+          prompt = effectiveCustomPrompts[action];
+        } else if (sequentialMode === "anchor_prev") {
+          prompt = buildSequentialFramePrompt({
+            action,
+            frameIdx,
+            totalFrames: actionFrameCount,
+            isFirst: isFirstFrame,
+            characterHint: params.character_hint,
+          });
+        } else {
+          // off 모드 — 옛 동작 호환
           let frameNote = "";
           if (actionFrameCount > 1) {
             const progress = frameIdx / (actionFrameCount - 1);
             frameNote = ` Frame ${frameIdx + 1}/${actionFrameCount} — pose at ${Math.round(progress * 100)}% through the motion.`;
           }
+          prompt = buildActionEditPrompt(poseDesc + frameNote, params.character_hint);
+        }
 
-          const basePrompt =
-            effectiveCustomPrompts?.[action] ??
-            buildActionEditPrompt(poseDesc + frameNote);
+        try {
+          const result = await editImageOpenAI({
+            imagePaths,
+            prompt,
+            model: effectiveEditModel as
+              | "gpt-image-2"
+              | "gpt-image-1.5"
+              | "gpt-image-1"
+              | "gpt-image-1-mini",
+            size: "1024x1024",
+          });
 
-          try {
-            const result = await editImageOpenAI({
-              imagePath: tmpEditPath,
-              prompt: basePrompt,
-              model: effectiveEditModel as
-                | "gpt-image-2"
-                | "gpt-image-1.5"
-                | "gpt-image-1"
-                | "gpt-image-1-mini",
-              size: "1024x1024",
-            });
+          // 배경 제거 (크로마키 또는 순백 flood-fill)
+          let processedBuffer: Buffer;
+          if (sheetChromaKeyColor) {
+            processedBuffer = await processFrameBase64Chroma(result.base64, sheetChromaKeyColor);
+          } else {
+            processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
+          }
+          if (params.frame_padding > 0) {
+            const { addPaddingToBuffer } = await import("../utils/image-process.js");
+            processedBuffer = await addPaddingToBuffer(processedBuffer, params.frame_padding);
+          }
 
-            // 배경 제거: 크로마키 모드 또는 순백 flood-fill
-            // gpt-image-2는 투명 미지원이라 크로마키 매개 필수.
-            // chroma_key_bg: "magenta" 사용 시 image-process.ts의 residue 패스가
-            // 외곽선으로 닫힌 내부 포켓(겨드랑이 등) 잔류까지 자동 제거.
-            let processedBuffer: Buffer;
-            if (sheetChromaKeyColor) {
-              processedBuffer = await processFrameBase64Chroma(result.base64, sheetChromaKeyColor);
-            } else {
-              processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
-            }
-            if (params.frame_padding > 0) {
-              const { addPaddingToBuffer } = await import("../utils/image-process.js");
-              processedBuffer = await addPaddingToBuffer(processedBuffer, params.frame_padding);
-            }
-            let frameQualityIssues: string[] = [];
-            let frameFallbackUsed = false;
+          // ── 품질 검증 + OpenAI fallback ─────────────────────────────────────
+          // 첫 프레임은 first_frame_quality_check 자동 적용 (시퀀스 토대 보호)
+          // 그 외는 quality_check 옵션을 따름
+          const shouldCheck =
+            (isFirstFrame && (params.first_frame_quality_check ?? true)) ||
+            params.quality_check;
 
-            // ── Claude 품질 검증 + OpenAI fallback ───────────────────────────
-            if (params.quality_check) {
-              const qc = await checkSpriteFrameQuality(
-                processedBuffer.toString("base64"),
-                params.character_hint
-              );
-              if (!qc.passed) {
-                frameQualityIssues = qc.issues;
-                console.warn(`[quality-check] ${params.character_name} ${action} f${frameIdx} 품질 미달 (${qc.issues.join(", ")}) → OpenAI fallback`);
-                try {
-                  const fallbackPrompt = effectiveCustomPrompts?.[action]
-                    ?? `${poseDesc}${frameNote}. Full body fully visible with no clipping. Single character only. Clean transparent background.`;
-                  const fallbackResult = await editImageOpenAI({
-                    imagePath: params.base_character_path,
-                    prompt: fallbackPrompt,
-                    size: "1024x1024",
-                  });
-                  processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);
-                  frameFallbackUsed = true;
-                } catch (fallbackErr) {
-                  console.warn(`[quality-check] OpenAI fallback 실패:`, fallbackErr);
-                }
+          let frameQualityIssues: string[] = [];
+          let frameFallbackUsed = false;
+          if (shouldCheck) {
+            const qc = await checkSpriteFrameQuality(
+              processedBuffer.toString("base64"),
+              params.character_hint,
+            );
+            if (!qc.passed) {
+              frameQualityIssues = qc.issues;
+              console.warn(`[quality-check] ${params.character_name} ${action} f${frameIdx} 품질 미달 (${qc.issues.join(", ")}) → OpenAI fallback`);
+              try {
+                const fallbackPrompt = effectiveCustomPrompts?.[action]
+                  ?? `${poseDesc}. Full body fully visible with no clipping. Single character only. Clean transparent background.`;
+                const fallbackResult = await editImageOpenAI({
+                  imagePath: params.base_character_path,
+                  prompt: fallbackPrompt,
+                  size: "1024x1024",
+                });
+                processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);
+                frameFallbackUsed = true;
+              } catch (fallbackErr) {
+                console.warn(`[quality-check] OpenAI fallback 실패:`, fallbackErr);
               }
             }
+          }
 
-            const safeAction = action.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const pathBase = path.join(
-              spriteDir,
-              `${safeCharName}_${safeAction}_f${String(frameIdx).padStart(2, "0")}.png`
-            );
-            const written = await writeOptimized(processedBuffer, pathBase);
-            const filePath = written.path;
-            const fileName = path.basename(filePath);
+          const safeAction = action.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const pathBase = path.join(
+            spriteDir,
+            `${safeCharName}_${safeAction}_f${String(frameIdx).padStart(2, "0")}.png`,
+          );
+          const written = await writeOptimized(processedBuffer, pathBase);
+          const filePath = written.path;
+          const fileName = path.basename(filePath);
 
-            const frame: SpriteFrame = {
-              name: `${action}_f${String(frameIdx).padStart(2, "0")}`,
-              file_path: filePath,
-              file_name: fileName,
+          const frame: SpriteFrame = {
+            name: `${action}_f${String(frameIdx).padStart(2, "0")}`,
+            file_path: filePath,
+            file_name: fileName,
+            action,
+            frame_index: frameIdx,
+          };
+
+          const asset: GeneratedAsset = {
+            id: generateAssetId(),
+            type: "image",
+            asset_type: "sprite",
+            provider: "openai/gpt-image-2",
+            prompt,
+            file_path: filePath,
+            file_name: fileName,
+            mime_type: written.format === "webp" ? "image/webp" : "image/png",
+            created_at: new Date().toISOString(),
+            metadata: {
+              character_name: params.character_name,
               action,
               frame_index: frameIdx,
-            };
+              base_character_path: params.base_character_path,
+              edit_model: effectiveEditModel,
+              sequential_mode: sequentialMode,
+              reference_count: imagePaths.length,
+              ...(sequentialMode === "anchor_prev" && !isFirstFrame
+                ? { uses_prev_frame_reference: true }
+                : {}),
+            },
+          };
+          saveAssetToRegistry(asset, outputDir);
 
-            manifest.frames.push(frame);
-            manifest.animations[action].push(frame.name);
-
-            const asset: GeneratedAsset = {
-              id: generateAssetId(),
-              type: "image",
-              asset_type: "sprite",
-              provider: "openai/gpt-image-2",
-              prompt: basePrompt,
-              file_path: filePath,
-              file_name: fileName,
-              mime_type: written.format === "webp" ? "image/webp" : "image/png",
-              created_at: new Date().toISOString(),
-              metadata: {
-                character_name: params.character_name,
-                action,
-                frame_index: frameIdx,
-                base_character_path: params.base_character_path,
-                edit_model: effectiveEditModel,
+          const result_: FrameResult = {
+            action,
+            frame_index: frameIdx,
+            success: true,
+            file_path: filePath,
+            ...(shouldCheck ? {
+              quality: {
+                passed: frameQualityIssues.length === 0,
+                issues: frameQualityIssues,
+                fallback_used: frameFallbackUsed,
+                provider: frameFallbackUsed ? "openai-fallback" : "openai/gpt-image-2",
               },
-            };
-            saveAssetToRegistry(asset, outputDir);
-
-            results.push({
-              action,
-              frame_index: frameIdx,
-              success: true,
-              file_path: filePath,
-              ...(params.quality_check ? {
-                quality: {
-                  passed: frameQualityIssues.length === 0,
-                  issues: frameQualityIssues,
-                  fallback_used: frameFallbackUsed,
-                  provider: frameFallbackUsed ? "openai-fallback" : "openai/gpt-image-2",
-                },
-              } : {}),
-            });
-          } catch (error) {
-            results.push({
+            } : {}),
+          };
+          return { result: result_, frame, processedBuffer, promptUsed: prompt };
+        } catch (error) {
+          return {
+            result: {
               action,
               frame_index: frameIdx,
               success: false,
               error: handleApiError(error, "OpenAI Edit (gpt-image-2)"),
-            });
+            },
+          };
+        }
+      };
+
+      // 액션 단위 처리 — 액션 내부는 직렬 (직전 프레임 의존), 액션 간은 병렬
+      const runActionTask = async (action: string): Promise<ActionOutput> => {
+        const count = resolveActionFrameCount(action, sequentialMode === "anchor_prev");
+
+        const localFrames: SpriteFrame[] = [];
+        const localFrameNames: string[] = [];
+        const localResults: FrameResult[] = [];
+        let prevTmpPath: string | undefined;
+
+        for (let frameIdx = 0; frameIdx < count; frameIdx++) {
+          const isFirst = frameIdx === 0;
+          const imagePaths =
+            sequentialMode === "anchor_prev" && !isFirst && prevTmpPath
+              ? [tmpEditPath, prevTmpPath]
+              : [tmpEditPath];
+
+          const out = await processOneFrame({
+            action,
+            frameIdx,
+            actionFrameCount: count,
+            imagePaths,
+            isFirstFrame: isFirst,
+          });
+
+          localResults.push(out.result);
+          if (out.frame) {
+            localFrames.push(out.frame);
+            localFrameNames.push(out.frame.name);
+          }
+
+          // 다음 프레임을 위해 prev 임시 파일 갱신 (sequential 모드만)
+          if (
+            sequentialMode === "anchor_prev" &&
+            out.processedBuffer &&
+            frameIdx < count - 1
+          ) {
+            const newPrevTmp = path.join(
+              tmpDirForPrev,
+              `prev_${safeCharName}_${action.replace(/[^a-zA-Z0-9_-]/g, "_")}_${frameIdx}_${Date.now()}_${Math.random().toString(36).slice(2)}.png`,
+            );
+            try {
+              const bgColor = sheetChromaKeyColor ?? WHITE_BG_COLOR;
+              await writeBufferOnSolidBgToTmp(out.processedBuffer, bgColor, newPrevTmp);
+              // 이전 prev 파일 정리
+              if (prevTmpPath && fs.existsSync(prevTmpPath)) {
+                try { fs.unlinkSync(prevTmpPath); } catch { /* ignore */ }
+              }
+              prevTmpPath = newPrevTmp;
+            } catch (composeErr) {
+              console.warn(`[sequential] ${action} f${frameIdx} prev composition 실패 — 다음 프레임은 anchor 만 사용:`, composeErr);
+              prevTmpPath = undefined;
+            }
+          } else if (sequentialMode === "anchor_prev" && !out.processedBuffer && !isFirst) {
+            // 직전 프레임 생성 실패 — 다음 프레임은 anchor 만 사용 (drift 방지)
+            prevTmpPath = undefined;
           }
         }
+
+        // 마지막 prev 임시 파일 정리
+        if (prevTmpPath && fs.existsSync(prevTmpPath)) {
+          try { fs.unlinkSync(prevTmpPath); } catch { /* ignore */ }
+        }
+
+        return { action, frames: localFrames, frameNames: localFrameNames, results: localResults };
+      };
+
+      // 액션 간 병렬 실행 (각 액션의 시퀀스는 내부적으로 직렬)
+      const actionOutputs = await Promise.all(effectiveActions.map(runActionTask));
+
+      // 결과를 manifest 와 results 에 합치기 (액션 입력 순서 유지)
+      const results: FrameResult[] = [];
+      for (const ao of actionOutputs) {
+        manifest.animations[ao.action] = ao.frameNames;
+        manifest.frames.push(...ao.frames);
+        results.push(...ao.results);
       }
 
-      // 임시 편집 입력 파일 정리
+      // 임시 편집 입력 파일 (anchor) 정리
       try {
         if (fs.existsSync(tmpEditPath)) fs.unlinkSync(tmpEditPath);
       } catch (_cleanupErr) {
@@ -985,7 +1300,8 @@ Returns:
       // ── 엔진별 스프라이트 시트 합성 & 내보내기 ────────────────────────────
       const exportedFiles: Record<string, string> = {};
       const exportErrors: Record<string, string> = {};
-      const needsCompose = params.export_formats.some((f) => f !== "individual");
+      const autoCompose = params.auto_compose_sheet ?? true;
+      const needsCompose = autoCompose || params.export_formats.some((f) => f !== "individual");
 
       if (needsCompose && succeeded > 0) {
         // 성공한 프레임만 수집
@@ -1043,6 +1359,9 @@ Returns:
         sprite_dir: spriteDir,
         manifest_path: manifestPath,
         pose_first_mode: poseFirstMode,
+        sequential_mode: sequentialMode,
+        first_frame_quality_check: params.first_frame_quality_check ?? true,
+        auto_compose_sheet: autoCompose,
         ...(poseFirstMode ? { pose_image_used: path.resolve(editSourcePath) } : {}),
         total_frames: results.length,
         succeeded,

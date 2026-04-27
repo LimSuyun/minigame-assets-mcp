@@ -15,6 +15,13 @@ import sharp from "sharp";
 import { DEFAULT_CONCEPT_MD_FILE, DEFAULT_GAME_DESIGN_FILE } from "../constants.js";
 import type { GameDesign } from "../types.js";
 import { analyzeAssetRequirements, type RequirementLevel } from "../utils/asset-requirements.js";
+import {
+  loadSizeSpecFile,
+  inferSpecKeyFromPath,
+  lookupSpecEntry,
+  compareRatio,
+  type RatioCompatReport,
+} from "../utils/size-spec.js";
 
 // ─── 유틸리티 ─────────────────────────────────────────────────────────────────
 
@@ -139,7 +146,12 @@ export function registerAssetUtilTools(server: McpServer): void {
 **크기 규칙** (size_rules로 직접 지정):
 - 카테고리별 기대 크기를 지정하면 PNG 파일의 실제 크기를 검사
 - 예: {"bg": {"w": 390, "h": 844}, "char": {"w": 48, "h": 48}}
-- 미지정 시 크기 검사 없이 네이밍만 검사
+
+**비율 호환성 검사 (v3.1.0+, size_spec_file 지정 시)**:
+- assets_dir 의 자산 경로 패턴 → asset_size_spec.json 의 spec 카테고리·키 자동 추론
+- 마스터 비율(W/H) vs spec 비율 비교 — 차이가 \`ratio_tolerance_pct\` (기본 5%) 초과면 'ratio_mismatch' 경고
+  → 게임 코드의 setDisplaySize 시 stretch/squash 발생 위험
+- 마스터 픽셀 < spec 픽셀이면 'upscale_risk' 경고
 
 **검사 공통 항목**:
 - 소문자 전용 (대문자 금지)
@@ -147,14 +159,16 @@ export function registerAssetUtilTools(server: McpServer): void {
 - 공백 사용 금지
 
 Args:
-  - assets_dir: 검사할 에셋 폴더 경로
+  - assets_dir: 검사할 에셋 폴더 경로 (보통 .minigame-assets/)
   - naming_pattern: 정규식 문자열 (미지정 시 기본 패턴)
-  - valid_categories: 허용 카테고리 목록 (미지정 시 파일명 패턴만 검사)
+  - valid_categories: 허용 카테고리 목록
   - size_rules: 카테고리별 기대 크기 {"카테고리": {"w": N, "h": N}}
-  - extensions: 허용 확장자 목록 (기본: png, jpg, ogg, mp3, json, wav)
+  - size_spec_file: asset_size_spec.json 경로 (지정 시 비율 호환성 검사 활성)
+  - ratio_tolerance_pct: 비율 차이 허용도 (기본: 5)
+  - extensions: 허용 확장자 (기본: png, jpg, ogg, mp3, json, wav)
 
 Returns:
-  통과/실패 파일 목록과 에러 상세.`,
+  통과/실패 파일 목록 + 비율 호환성 보고 (warnings).`,
       inputSchema: z.object({
         assets_dir: z.string().min(1).describe("검사할 에셋 폴더 경로"),
         naming_pattern: z.string().optional().describe("네이밍 규칙 정규식 (기본: [카테고리]_[이름]_... 패턴)"),
@@ -163,6 +177,10 @@ Returns:
           w: z.number().int().positive(),
           h: z.number().int().positive(),
         })).optional().describe("카테고리별 기대 크기 (예: {\"bg\": {\"w\": 390, \"h\": 844}})"),
+        size_spec_file: z.string().optional()
+          .describe("asset_size_spec.json 경로. 지정 시 자산 경로 → spec 매핑으로 비율 호환성 검사"),
+        ratio_tolerance_pct: z.number().min(0).max(50).default(5)
+          .describe("비율 차이 허용도 (%, 기본 5)"),
         extensions: z.array(z.string()).default(["png", "jpg", "ogg", "mp3", "json", "wav"]).describe("허용 확장자"),
       }).strict(),
       annotations: {
@@ -193,11 +211,25 @@ Returns:
         namingRe = /^[a-z0-9]+(_[a-z0-9]+)*\.[a-z0-9]+$/;
       }
 
+      // size_spec_file 지정 시 비율 호환성 검사 컨텍스트 준비
+      const sizeSpec = params.size_spec_file ? loadSizeSpecFile(params.size_spec_file) : null;
+      const ratioTolerance = params.ratio_tolerance_pct ?? 5;
+      const sizeCompatibilityWarnings: Array<{
+        file: string;
+        spec_key: string;
+        master: { width: number; height: number };
+        spec: { width: number; height: number };
+        kind: RatioCompatReport["kind"];
+        delta_pct?: number;
+        message: string;
+      }> = [];
+
       const results: Array<{
         file: string;
         valid: boolean;
         errors: string[];
         size?: { w: number; h: number };
+        spec_compat?: { kind: RatioCompatReport["kind"]; spec_key: string; spec: { w: number; h: number } };
       }> = [];
 
       for (const fullPath of allFiles) {
@@ -249,11 +281,55 @@ Returns:
           }
         }
 
+        // ── 비율 호환성 검사 (size_spec_file 지정 시, PNG/WebP 만) ──────
+        let specCompat: { kind: RatioCompatReport["kind"]; spec_key: string; spec: { w: number; h: number } } | undefined;
+        if (sizeSpec && (fileName.endsWith(".png") || fileName.endsWith(".webp"))) {
+          try {
+            const inferred = inferSpecKeyFromPath(relPath.replace(/\\/g, "/"));
+            if (inferred) {
+              const specEntry = lookupSpecEntry(sizeSpec.specs, inferred);
+              if (specEntry) {
+                let mw = sizeInfo?.w;
+                let mh = sizeInfo?.h;
+                if (mw == null || mh == null) {
+                  const meta = await sharp(fullPath).metadata();
+                  mw = meta.width || 0;
+                  mh = meta.height || 0;
+                }
+                const report = compareRatio(mw, mh, specEntry, ratioTolerance);
+                if (report.kind !== "ok") {
+                  const specKeyStr = `${inferred.category}.${inferred.key}`;
+                  const msg = report.kind === "ratio_mismatch"
+                    ? `비율 차이 ${report.deltaPct.toFixed(1)}% > 허용 ${ratioTolerance}% — setDisplaySize 시 stretch/squash 위험. 마스터 ${mw}×${mh} (${report.masterRatio.toFixed(3)}) vs spec ${specEntry.width}×${specEntry.height} (${report.specRatio.toFixed(3)})`
+                    : `업스케일 위험 — 마스터 ${mw}×${mh} 가 spec ${specEntry.width}×${specEntry.height} 보다 작음`;
+                  sizeCompatibilityWarnings.push({
+                    file: relPath,
+                    spec_key: specKeyStr,
+                    master: { width: mw, height: mh },
+                    spec: { width: specEntry.width, height: specEntry.height },
+                    kind: report.kind,
+                    ...(report.kind === "ratio_mismatch" ? { delta_pct: Number(report.deltaPct.toFixed(2)) } : {}),
+                    message: msg,
+                  });
+                  specCompat = {
+                    kind: report.kind,
+                    spec_key: specKeyStr,
+                    spec: { w: specEntry.width, h: specEntry.height },
+                  };
+                }
+              }
+            }
+          } catch {
+            // 비율 검사 실패는 경고에만 영향
+          }
+        }
+
         results.push({
           file: relPath,
           valid: errors.length === 0,
           errors,
           ...(sizeInfo ? { size: sizeInfo } : {}),
+          ...(specCompat ? { spec_compat: specCompat } : {}),
         });
       }
 
@@ -266,9 +342,15 @@ Returns:
           total: results.length,
           passed: passed.length,
           failed: failed.length,
+          spec_compatibility_warnings: sizeCompatibilityWarnings.length,
         },
-        errors: failed.map((r) => ({ file: r.file, errors: r.errors, size: r.size })),
+        errors: failed.map((r) => ({ file: r.file, errors: r.errors, size: r.size, spec_compat: r.spec_compat })),
         passed_files: passed.map((r) => r.file),
+        ...(sizeSpec ? {
+          size_spec_loaded: true,
+          ratio_tolerance_pct: ratioTolerance,
+          size_compatibility_warnings: sizeCompatibilityWarnings,
+        } : { size_spec_loaded: false }),
       };
 
       return {

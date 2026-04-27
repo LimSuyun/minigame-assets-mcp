@@ -35,13 +35,14 @@ Claude에게 이렇게 요청하면 됩니다:
 
 ## 할 수 있는 것
 
-- **캐릭터** — 베이스 → 장비 결합 → 스프라이트 시트 (1행 가로 스트립 기본)
-- **배경·화면** — 게임 씬 배경, 로딩 화면, 로비 화면, parallax 다층 레이어
+- **캐릭터** — 베이스 → 장비 결합 → 스프라이트 시트 (Sequential anchor+prev 패턴, 액션별 5+ 프레임 매트릭스, Phaser/Unity/Cocos atlas 자동 동반)
+- **배경·화면** — 게임 씬 배경 (spec-aware 사이즈), 로딩·로비 화면, parallax 다층 레이어
 - **UI** — HUD, 버튼, 팝업, 아이콘, 스타일 레퍼런스 시트
-- **마케팅** — 앱 로고, 썸네일, 스토어 배너/스크린샷, SNS 팩
+- **마케팅** — 타이틀 워드마크 PNG (재사용 자산), 앱 로고·썸네일 (워드마크 + 캐릭터 통합 합성), 스토어 배너/스크린샷, SNS 팩
 - **사운드** — 로컬 AudioCraft 기반 BGM·SFX
 - **영상** — OpenAI Sora
-- **배포 파이프라인** — `deploy-map.json` 매니페스트로 마스터 → 코드 경로 리사이즈 복사
+- **배포 파이프라인** — `deploy-map.json` 매니페스트로 마스터 → 코드 경로 리사이즈 복사 (`asset_size_spec.json` 기반 자동 채움 지원)
+- **마이그레이션** — `asset_consolidate_registry` 로 옛 분산 sub-registry 일괄 흡수
 
 자세한 도구 목록은 [`docs/tools.md`](docs/tools.md).
 

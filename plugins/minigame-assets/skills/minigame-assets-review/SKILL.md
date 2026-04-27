@@ -23,7 +23,7 @@ asset_review
 | 모드 | 체크 | 비용 |
 |------|------|------|
 | `quick` | 구조(해상도, 파일 크기, 알파 채널), 크로마 잔류 측정 | 거의 무료 (AI 호출 없음) |
-| `standard` | quick + 비주얼 AI (Gemini 2.5 Flash): 전신 가시성, 배경 clean, 해부학, 단일 캐릭터 | ~$0.02 per asset |
+| `standard` | quick + 비주얼 AI (OpenAI gpt-4.1-mini Vision): 전신 가시성, 배경 clean, 해부학, 단일 캐릭터 | ~$0.02 per asset |
 | `deep` | standard + 프레임 간 일관성, 포즈 변화 검증 | ~$0.05 per asset |
 
 체크 항목 자세히:
@@ -42,11 +42,12 @@ asset_validate
 - 네이밍 규칙 (snake_case, 허용 prefix)
 - 파일 포맷 (.png / .webp)
 - 투명도 존재 여부 (스프라이트는 alpha 필수)
-- 사이즈 일치 (asset_size_spec.json 의 기대 크기)
+- 사이즈 일치 (`size_rules` 명시 시)
+- **비율 호환성** (`size_spec_file` 지정 시, v3.1.0+) — 자산 경로 → spec 매핑하여 마스터 비율 vs spec 비율 비교. 차이 5% 초과면 `ratio_mismatch` 경고 (setDisplaySize stretch 위험 사전 진단). 마스터 < spec 이면 `upscale_risk` 경고
 
 ## 3. asset_validate_consistency — 스타일 일관성
 
-여러 에셋 간 아트 스타일 일관성 검증 (Gemini Vision):
+여러 에셋 간 아트 스타일 일관성 검증 (OpenAI gpt-4.1-mini Vision):
 ```
 asset_validate_consistency
   asset_paths: [".minigame-assets/sprites/hero_base.webp",

@@ -31,6 +31,82 @@ import {
 import { handleApiError } from "../utils/errors.js";
 import { saveBase64Optimized } from "../utils/image-output.js";
 import type { GameConcept, GeneratedAsset, GameDesign } from "../types.js";
+import sharp from "sharp";
+import { DEFAULT_ASSET_SIZE_SPEC_FILE } from "../constants.js";
+import { loadSizeSpecFile } from "../utils/size-spec.js";
+
+// ─── target_size / aspect_ratio → OpenAI size 매핑 + sharp 후처리 ────────────
+
+type OpenAISize = "1024x1024" | "1024x1536" | "1536x1024" | "1792x1024" | "1024x1792";
+
+/** 비율 r=W/H 에 가장 가까운 OpenAI 지원 size 를 반환 */
+function pickOpenAISizeForRatio(targetW: number, targetH: number): OpenAISize {
+  const r = targetW / targetH;
+  // gpt-image-2 지원 사이즈: 1024x1024, 1024x1536(2:3), 1536x1024(3:2)
+  // 더 와이드/세로는 1792x1024, 1024x1792 (gpt-image-1 계열)
+  const candidates: Array<{ size: OpenAISize; w: number; h: number }> = [
+    { size: "1024x1024", w: 1024, h: 1024 },
+    { size: "1024x1536", w: 1024, h: 1536 },
+    { size: "1536x1024", w: 1536, h: 1024 },
+    { size: "1024x1792", w: 1024, h: 1792 },
+    { size: "1792x1024", w: 1792, h: 1024 },
+  ];
+  let best = candidates[0];
+  let bestDelta = Infinity;
+  for (const c of candidates) {
+    const cr = c.w / c.h;
+    const delta = Math.abs(Math.log(cr) - Math.log(r));
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = c;
+    }
+  }
+  return best.size;
+}
+
+/** "9:16" / "16:9" / "390x844" 등 입력을 (targetW, targetH) 로 정규화 */
+function resolveTargetDims(opts: {
+  target_size?: string;
+  aspect_ratio?: string;
+  spec_w?: number;
+  spec_h?: number;
+}): { width: number; height: number } | null {
+  if (opts.spec_w && opts.spec_h) {
+    return { width: opts.spec_w, height: opts.spec_h };
+  }
+  if (opts.target_size) {
+    const m = opts.target_size.match(/^(\d+)\s*[x×]\s*(\d+)$/i);
+    if (m) return { width: parseInt(m[1], 10), height: parseInt(m[2], 10) };
+  }
+  if (opts.aspect_ratio) {
+    const m = opts.aspect_ratio.match(/^(\d+)\s*:\s*(\d+)$/);
+    if (m) {
+      const ratioW = parseInt(m[1], 10);
+      const ratioH = parseInt(m[2], 10);
+      // 기본 캔버스 크기 — 모바일 세로(9:16 → 390×844 근사) 가정
+      // 단순 비율만 정확히 보존하는 표준 캔버스
+      const base = 1024;
+      if (ratioW >= ratioH) {
+        return { width: base, height: Math.round((base * ratioH) / ratioW) };
+      }
+      return { width: Math.round((base * ratioW) / ratioH), height: base };
+    }
+  }
+  return null;
+}
+
+/** AI 생성 base64 PNG 를 target (W,H) 로 cover-crop + resize */
+async function fitBufferToTarget(
+  base64: string,
+  targetW: number,
+  targetH: number,
+): Promise<Buffer> {
+  const buf = Buffer.from(base64, "base64");
+  return sharp(buf)
+    .resize(targetW, targetH, { fit: "cover", position: "center", kernel: "lanczos3" })
+    .png()
+    .toBuffer();
+}
 
 // ─── 색상 유틸리티 ────────────────────────────────────────────────────────────
 
@@ -873,31 +949,37 @@ Returns:
 
 **Target Layer**: GameScene **Layer 0 (배경)** — \`style: parallax\` 시 sub-depth 0.0/0.1/0.2로 배치. 자세한 레이어 시스템은 \`templates/docs/layer-system.md\` 참조.
 
-Supports:
-- "static": Single background image — **openai/gpt-image-2 권장** (불투명 PNG, 디테일 우수)
-- "parallax": 3 layers (far/mid/near) for parallax scrolling
-  - far  = SW×2.5 width (sky, distant horizon) — openai/gpt-image-2 가능 (불투명)
-  - mid  = SW×3.5 width (midground elements, 투명 PNG)
-  - near = SW×5.0 width (foreground elements, 투명 PNG)
+**사이즈 결정 (v3.1.0+)**:
+- \`target_size\` (예: "390x844") 명시 → 가장 가까운 OpenAI 지원 사이즈로 생성 후 sharp 로 cover-crop + resize
+- 미명시이면 \`asset_size_spec.json\` 의 \`backgrounds.full\` 자동 사용
+- 둘 다 없으면 \`aspect_ratio\` (기본 "9:16") 로 1024 base 비율 적용
+- 어떤 경우든 출력은 정확히 target 사이즈 (게임 코드의 setDisplaySize 시 stretch 발생 방지)
 
-**주의**: gpt-image-2는 네이티브 투명 배경을 지원하지 않습니다.
-- static 배경 (불투명): openai/gpt-image-2가 최적
+Supports:
+- "static": Single background image — openai/gpt-image-2 권장 (불투명 PNG, 디테일 우수)
+- "parallax": 3 layers (far/mid/near). 각 레이어는 spec(parallax_far/mid/near) 기준으로 fit.
 
 Args:
   - screen_name (string): Name of the screen
   - description (string): Detailed background description
   - style (string, optional): "static" | "parallax" (default: "static")
+  - target_size (string, optional): "WxH" 형식 (예: "390x844"). 명시 시 spec/aspect_ratio 보다 우선
+  - size_spec_file (string, optional): asset_size_spec.json 경로. 미지정 시 기본 위치 자동 탐지
   - model (string, optional): OpenAI 모델. 기본: gpt-image-2
-  - aspect_ratio (string, optional): "9:16" | "16:9" | "1:1" (default: "9:16")
+  - aspect_ratio (string, optional): "9:16" | "16:9" | "1:1" (default: "9:16") — target_size/spec 미사용 시만
   - concept_file (string, optional): Path to game concept
   - output_dir (string, optional): Output directory
 
 Returns:
-  File path(s) of generated background(s)`,
+  File path(s) of generated background(s) at the resolved target size.`,
       inputSchema: z.object({
         screen_name: z.string().min(1).max(200).describe("Screen name for this background"),
         description: z.string().min(10).max(3000).describe("Detailed background description"),
         style: z.enum(["static", "parallax"]).default("static").describe("Background type"),
+        target_size: z.string().regex(/^\d+\s*[x×]\s*\d+$/).optional()
+          .describe("출력 사이즈 'WxH' (예: '390x844'). spec/aspect_ratio 보다 우선"),
+        size_spec_file: z.string().optional()
+          .describe("asset_size_spec.json 경로. 미지정 시 기본 위치 자동 탐지"),
         model: z.string().optional().describe("OpenAI 모델 override. 기본: gpt-image-2"),
         aspect_ratio: z.enum(["9:16", "16:9", "1:1", "3:4", "4:3"]).default("9:16"),
         concept_file: z.string().optional(),
@@ -912,6 +994,25 @@ Returns:
         const styleHint = loadStyleHint(params.concept_file, params.design_file);
         const safeScreenName = params.screen_name.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase();
 
+        // ── 출력 사이즈 결정 (target_size > size_spec.backgrounds.full > aspect_ratio) ─
+        const specPath = params.size_spec_file || DEFAULT_ASSET_SIZE_SPEC_FILE;
+        const sizeSpec = loadSizeSpecFile(specPath);
+        const bgFullSpec = sizeSpec?.specs.backgrounds.full;
+        const bgFar  = sizeSpec?.specs.backgrounds.parallax_far;
+        const bgMid  = sizeSpec?.specs.backgrounds.parallax_mid;
+        const bgNear = sizeSpec?.specs.backgrounds.parallax_near;
+
+        const staticTarget = resolveTargetDims({
+          target_size: params.target_size,
+          aspect_ratio: params.aspect_ratio,
+          spec_w: !params.target_size && bgFullSpec ? bgFullSpec.width  : undefined,
+          spec_h: !params.target_size && bgFullSpec ? bgFullSpec.height : undefined,
+        });
+        const targetSizeReason: string =
+          params.target_size ? "target_size" :
+          bgFullSpec         ? "size_spec(backgrounds.full)" :
+                                `aspect_ratio(${params.aspect_ratio})`;
+
         const BASE_PROMPT = [
           `2D game background for "${params.screen_name}": ${params.description}.`,
           styleHint ? `Art style: ${styleHint}.` : "",
@@ -919,7 +1020,7 @@ Returns:
           "Rich detailed environment art. Game-quality illustration.",
         ].filter(Boolean).join(" ");
 
-        const results: Array<{ layer: string; file_path: string; success: boolean; error?: string }> = [];
+        const results: Array<{ layer: string; file_path: string; success: boolean; error?: string; target_size?: string; size_reason?: string }> = [];
 
         const openaiModel = (params.model ?? "gpt-image-2") as
           | "gpt-image-2"
@@ -929,57 +1030,107 @@ Returns:
 
         if (params.style === "static") {
           try {
-            // static 배경은 불투명 PNG가 표준. gpt-image-2는 투명 미지원이라 "opaque" 명시.
+            // 1) 가장 가까운 OpenAI 사이즈로 생성 (target/spec/aspect 결정)
+            const aiSize = staticTarget
+              ? pickOpenAISizeForRatio(staticTarget.width, staticTarget.height)
+              : "1024x1024";
+
             const result = await generateImage(
               BASE_PROMPT + " Complete scene with full foreground, midground, and background.",
-              "1024x1024",
+              aiSize,
               openaiModel,
               "opaque",
             );
+
+            // 2) sharp 로 정확히 target 사이즈로 cover-crop
+            let processedBase64 = result.base64;
+            if (staticTarget) {
+              const fittedBuf = await fitBufferToTarget(result.base64, staticTarget.width, staticTarget.height);
+              processedBase64 = fittedBuf.toString("base64");
+            }
+
             let fileName =`bg_${safeScreenName}.png`;
             let filePath = buildAssetPath(outputDir, "backgrounds", fileName);
             ensureDir(path.dirname(filePath));
-            const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
+            const _saved = await saveBase64Optimized(processedBase64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
             saveAssetToRegistry({
               id: generateAssetId(), type: "image", asset_type: "background",
               provider: "openai", prompt: BASE_PROMPT, file_path: filePath,
               file_name: fileName, mime_type: _saved.mimeType,
               created_at: new Date().toISOString(),
-              metadata: { screen_name: params.screen_name, style: "static" },
+              metadata: {
+                screen_name: params.screen_name,
+                style: "static",
+                ...(staticTarget ? {
+                  target_size: `${staticTarget.width}x${staticTarget.height}`,
+                  target_display: { width: staticTarget.width, height: staticTarget.height, fit: "cover" },
+                  spec_key: bgFullSpec ? "backgrounds.full" : undefined,
+                  ai_size: aiSize,
+                  size_reason: targetSizeReason,
+                } : { ai_size: aiSize }),
+              },
             }, outputDir);
-            results.push({ layer: "static", file_path: filePath, success: true });
+            results.push({
+              layer: "static",
+              file_path: filePath,
+              success: true,
+              ...(staticTarget ? { target_size: `${staticTarget.width}x${staticTarget.height}`, size_reason: targetSizeReason } : {}),
+            });
           } catch (err) {
             results.push({ layer: "static", file_path: "", success: false, error: handleApiError(err, "Background") });
           }
         } else {
-          const LAYERS: Array<{ id: string; suffix: string; promptExtra: string; aspectRatio: string }> = [
-            { id: "far",  suffix: "_bg_far",  promptExtra: "FAR LAYER: Only sky, distant mountains/horizon, very distant elements. No foreground.",  aspectRatio: "16:9" },
-            { id: "mid",  suffix: "_bg_mid",  promptExtra: "MID LAYER: Only midground — trees, buildings at medium distance. Transparent PNG, no sky.", aspectRatio: "16:9" },
-            { id: "near", suffix: "_bg_near", promptExtra: "NEAR LAYER: Only foreground elements — ground, rocks, plants at bottom. Transparent PNG.", aspectRatio: "16:9" },
+          const LAYERS: Array<{ id: "far" | "mid" | "near"; suffix: string; promptExtra: string; spec?: { width: number; height: number } }> = [
+            { id: "far",  suffix: "_bg_far",  promptExtra: "FAR LAYER: Only sky, distant mountains/horizon, very distant elements. No foreground.",
+              spec: bgFar  ? { width: bgFar.width,  height: bgFar.height  } : undefined },
+            { id: "mid",  suffix: "_bg_mid",  promptExtra: "MID LAYER: Only midground — trees, buildings at medium distance. Transparent PNG, no sky.",
+              spec: bgMid  ? { width: bgMid.width,  height: bgMid.height  } : undefined },
+            { id: "near", suffix: "_bg_near", promptExtra: "NEAR LAYER: Only foreground elements — ground, rocks, plants at bottom. Transparent PNG.",
+              spec: bgNear ? { width: bgNear.width, height: bgNear.height } : undefined },
           ];
 
           for (const layer of LAYERS) {
             try {
               const prompt = `${BASE_PROMPT} ${layer.promptExtra}`;
               const layerBackground = layer.id === "far" ? "opaque" as const : "transparent" as const;
-              const result = await generateImage(
-                prompt,
-                "1792x1024",
-                openaiModel,
-                layerBackground,
-              );
+              // 레이어별 spec 이 있으면 그 사이즈로 cover-crop. 미지정이면 1792x1024 (16:9 기본).
+              const layerTarget = layer.spec ?? null;
+              const aiSize = layerTarget
+                ? pickOpenAISizeForRatio(layerTarget.width, layerTarget.height)
+                : "1792x1024";
+              const result = await generateImage(prompt, aiSize, openaiModel, layerBackground);
+              let processedBase64 = result.base64;
+              if (layerTarget) {
+                const fitted = await fitBufferToTarget(result.base64, layerTarget.width, layerTarget.height);
+                processedBase64 = fitted.toString("base64");
+              }
               let fileName =`bg_${safeScreenName}${layer.suffix}.png`;
               let filePath = buildAssetPath(outputDir, "backgrounds", fileName);
               ensureDir(path.dirname(filePath));
-              const _saved = await saveBase64Optimized(result.base64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
+              const _saved = await saveBase64Optimized(processedBase64, filePath); filePath = _saved.filePath; fileName = _saved.fileName;
               saveAssetToRegistry({
                 id: generateAssetId(), type: "image", asset_type: "background",
                 provider: "openai", prompt, file_path: filePath,
                 file_name: fileName, mime_type: _saved.mimeType,
                 created_at: new Date().toISOString(),
-                metadata: { screen_name: params.screen_name, style: "parallax", layer: layer.id },
+                metadata: {
+                  screen_name: params.screen_name,
+                  style: "parallax",
+                  layer: layer.id,
+                  ...(layerTarget ? {
+                    target_size: `${layerTarget.width}x${layerTarget.height}`,
+                    target_display: { width: layerTarget.width, height: layerTarget.height, fit: "cover" },
+                    spec_key: `backgrounds.parallax_${layer.id}`,
+                    ai_size: aiSize,
+                  } : { ai_size: aiSize }),
+                },
               }, outputDir);
-              results.push({ layer: layer.id, file_path: filePath, success: true });
+              results.push({
+                layer: layer.id,
+                file_path: filePath,
+                success: true,
+                ...(layerTarget ? { target_size: `${layerTarget.width}x${layerTarget.height}`, size_reason: `size_spec(backgrounds.parallax_${layer.id})` } : {}),
+              });
             } catch (err) {
               results.push({ layer: layer.id, file_path: "", success: false, error: handleApiError(err, `Background ${layer.id}`) });
             }

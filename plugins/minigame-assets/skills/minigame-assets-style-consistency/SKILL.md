@@ -70,7 +70,7 @@ asset_generate_style_reference_sheet
 asset_validate_consistency
   asset_paths: ["...", "..."]
 ```
-Gemini Vision 이 여러 에셋을 비교해 스타일·팔레트 일관성 점수 반환. 임계값 미만이면 재생성 권유.
+OpenAI Vision 이 여러 에셋을 비교해 스타일·팔레트 일관성 점수 반환. 임계값 미만이면 재생성 권유.
 
 ## 워크플로 권장 순서
 

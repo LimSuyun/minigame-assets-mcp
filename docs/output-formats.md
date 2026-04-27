@@ -82,3 +82,17 @@ asset_generate_atlas_json
 ```
 
 각 프레임 좌표·크기를 엔진이 요구하는 JSON 스키마로 직렬화합니다.
+
+> **v3.1.0 부터** `asset_generate_sprite_sheet` 는 `auto_compose_sheet: true` 가 기본이고 `export_formats` 도 `["individual", "phaser"]` 가 기본이라, 합성 시트 (`_sheet.{webp|png}`) + Phaser atlas JSON 이 자산 생성과 함께 자동 동반됩니다. `asset_generate_atlas_json` 은 외부에서 들여온 시트나 사후 재생성 용도로 사용하세요.
+
+---
+
+## spec-aware 사이즈 정합성 (v3.1.0+)
+
+게임 코드의 `setDisplaySize()` 가 정사각형 마스터를 세로로 stretch 하는 문제를 방지하기 위해, 사이즈 정합성을 세 단계에서 함께 잡습니다.
+
+| 단계 | 도구 | 동작 |
+|---|---|---|
+| 생성 | `asset_generate_screen_background` | `target_size` (예: "390x844") / `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 + sharp cover-crop. 옛 `aspect_ratio` 무시 버그 수정. |
+| 검증 | `asset_validate (size_spec_file: ...)` | 자산 경로 → spec 매핑하여 마스터 비율 vs spec 비율 비교. tolerance(기본 5%) 초과 시 `ratio_mismatch`, 마스터 < spec 이면 `upscale_risk` 경고 |
+| 배포 | `asset_deploy (auto_fill_targets: true)` | `deploy_targets` 비었을 때 `asset_size_spec.json` + 자산 경로 패턴으로 in-memory 자동 채움 → 즉시 배포 |

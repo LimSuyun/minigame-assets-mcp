@@ -25,12 +25,13 @@ version: 2.1.0
 
 예: `gpt-image-2, high, 2048×2048` = $0.040 × 1.8 = **$0.072 per image**
 
-## Gemini Imagen / Veo
+## OpenAI Sora (영상)
 
 | 모델 | 단가 |
 |------|------|
-| Imagen-4 (모든 variant) | **$0.04 per image** (flat) |
-| Veo 3 video | ~$0.50 per 8-sec clip |
+| Sora 5–20초 480/720/1080p | 해상도·길이별 가변 (공식 대시보드 참고) |
+
+> v3.0+ 부터 Gemini (Imagen / Veo) 는 코드에서 제거되었습니다. 모든 이미지·비전·영상 경로는 OpenAI 단일화.
 
 ## GPT-5 텍스트 (프롬프트 refine 시)
 
@@ -49,7 +50,7 @@ version: 2.1.0
 | UI 아이콘·버튼 | `gpt-image-1-mini` medium | 단순 · 충분 |
 | 캐릭터 베이스·스프라이트 | `gpt-image-2` high | 디테일·텍스트·일관성 우수 |
 | 배경 (정적) | `gpt-image-2` medium | 텍스트 없으면 high 불필요 |
-| 배경 parallax 레이어 | `Gemini Imagen-4 fast` | 투명도 네이티브 |
+| 배경 parallax 레이어 (mid/near 투명) | `gpt-image-1` | 네이티브 투명 배경 |
 | 앱 로고 | `gpt-image-2` high | 타이틀 텍스트 PNG 1회 + 합성 (color_scheme별 1회). 캐릭터 미제공 시 대표 이미지 1회 추가 |
 | 썸네일·마케팅 | `gpt-image-2` edit | 배경·캐릭터·타이틀 텍스트 다중 레퍼런스 통합 합성 (품질 최우선) |
 | 프로토타입 전반 | `gpt-image-1-mini` low/medium | 스타일 확정 전 |
@@ -74,14 +75,17 @@ asset_list_assets  output_dir: "./.minigame-assets"
 2. **`refine_prompt: true`** 활용 — 짧은 한국어 입력을 영문 상세화해서 적중률 높여 재시도 줄임 (비용 대비 효과 최고)
 3. **`asset_compare_models`** — 한 프롬프트를 여러 모델에 태워서 스타일 비교. 한 번 쓰고 그 뒤로는 검증된 모델만 사용
 4. **Canon 시스템** — 레퍼런스로 재사용해 재생성 루프 줄임 (`minigame-assets-style-consistency` 참조)
-5. **asset_review mode: "quick"** 우선 — "standard" 는 Gemini Vision 호출 비용 있음
+5. **asset_review mode: "quick"** 우선 — "standard"/"deep" 은 OpenAI Vision (gpt-4.1-mini) 호출 비용 있음
+6. **`asset_generate_title_text` 1회 + `title_text_image_path` 재사용** — 로고/썸네일/로딩 화면이 같은 워드마크를 공유해 재생성 비용 0
+7. **`asset_consolidate_registry`** — 분산 sub-registry 통합으로 `asset_list_assets` 비용 추적의 정확도 ↑
+8. **`asset_deploy auto_fill_targets: true`** (기본) — spec 기반 자동 리사이즈로 수동 후처리 불필요
 
 ## asset_compare_models 실사용
 
 ```
 asset_compare_models
   prompt: "chibi Korean boy adventurer, red tunic, transparent bg"
-  models: ["gpt-image-1", "gpt-image-2", "imagen-4.0-generate-001"]
+  models: ["gpt-image-1", "gpt-image-2", "gpt-image-1-mini"]
   quality: "medium"
 ```
 → 3장 생성 + registry metadata 에 비교용 tag. 스타일 확인 후 프로젝트 표준 모델 결정.
