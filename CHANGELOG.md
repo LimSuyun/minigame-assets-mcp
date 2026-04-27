@@ -2,9 +2,9 @@
 
 이 프로젝트의 주요 변경 사항. SemVer 를 따르며, BREAKING 항목은 명시적으로 표시한다.
 
-## 3.1.0 — 2026-04-27
+## 3.1.1 — 2026-04-27
 
-> 마케팅 자산 합성 흐름 개편 + 워크플로 순서 정정 + registry/deploy-map 통합. SemVer 상 일부 BREAKING 항목이 포함되어 있으나 외부 호출 흔적이 없어 보수적으로 minor bump 로 발행.
+> 마케팅 자산 합성 흐름 개편 + 시퀀스 스프라이트 패턴 + registry/deploy-map 통합 + spec-aware 사이즈 정합성. 변경 범위는 SemVer 상 minor 급(신규 도구 2개 + BREAKING 항목)이지만 npm 의 `3.1.0` 이 이미 publish 되어 있어 **patch bump (`3.1.1`)** 로 발행. CHANGELOG 의 BREAKING 섹션을 반드시 참조하세요.
 
 ### ✨ 신규 도구
 - **`asset_generate_title_text`** — 게임 타이틀(워드마크) 만 담긴 투명 배경 PNG 1장 단독 생성. 로고/썸네일/로딩 화면에서 `title_text_image_path` 로 재사용해 일관성·비용 절감.
