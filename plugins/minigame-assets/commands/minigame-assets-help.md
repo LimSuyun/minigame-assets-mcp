@@ -76,11 +76,11 @@ output_dir: (에셋 출력 경로)
   ✅/⬜ CONCEPT.md          → 있음 / 없음
 
 [Canon 현황]
-  ✅/⬜ 게임 로고            canon/logo/...
   ✅/⬜ 스타일 레퍼런스 시트  canon/style/...
   ✅/⬜ 캐릭터: (각 ID)      canon/characters/.../base_master.png
   ✅/⬜ 무기: (각 ID)        canon/weapons/.../icon_master.png
   (없으면 "Canon 에셋 없음" 표시)
+  ※ 앱 로고는 마케팅(Stage 6) 산출물 — Canon 자산이 아닌 마케팅 진행률(아래 Stage 6 게이지)로 표시
 
 [에셋 생성 현황 — Stage별]
   Stage 0 (Canon/기반):  ████████░░  N% (X/Y)

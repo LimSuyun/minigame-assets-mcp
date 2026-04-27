@@ -95,7 +95,7 @@ Returns:
           id: generateAssetId(),
           type: "video",
           asset_type: params.video_type,
-          provider: "openai-sora",
+          provider: "openai/sora",
           prompt: params.prompt,
           file_path: filePath,
           file_name: fileName,
@@ -116,7 +116,7 @@ Returns:
           asset_id: asset.id,
           video_type: params.video_type,
           duration_seconds: params.duration_seconds,
-          provider: "openai-sora",
+          provider: "openai/sora",
         };
 
         return {

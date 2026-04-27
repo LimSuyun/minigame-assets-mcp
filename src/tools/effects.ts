@@ -481,7 +481,7 @@ Returns:
             id: generateAssetId(),
             type: "image",
             asset_type: "ui_element",
-            provider: "sharp-svg",
+            provider: "sharp/svg",
             prompt: `Floating text style: ${textType}`,
             file_path: filePath,
             file_name: fileName,

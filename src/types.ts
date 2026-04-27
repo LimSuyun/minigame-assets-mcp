@@ -1,5 +1,11 @@
 export interface GameConcept {
   game_name: string;
+  /**
+   * 파일명·디렉터리명에 사용되는 ASCII 영문 슬러그.
+   * 한글/공백이 들어간 game_name 으로부터 안전한 자산 파일명을 만들기 위해 권장.
+   * 미지정 시 도구가 game_name 에서 한글 보존 슬러그로 fallback (옛 동작 호환).
+   */
+  name_slug?: string;
   genre: string;
   art_style: string;
   color_palette: string[];
@@ -16,9 +22,15 @@ export interface GeneratedAsset {
   id: string;
   type: "image" | "music" | "video";
   asset_type: string;
+  /** "openai/<model>" 형식 권장 — registry 통계·필터의 기준이 된다 */
   provider: string;
   prompt: string;
   file_path: string;
+  /**
+   * registry 루트(`.minigame-assets/`) 기준 POSIX 슬래시 상대경로.
+   * 프로젝트 이동/머신 동기화에도 안정적인 식별자 — 등록 시 자동 부착된다.
+   */
+  relative_path?: string;
   file_name: string;
   mime_type: string;
   created_at: string;

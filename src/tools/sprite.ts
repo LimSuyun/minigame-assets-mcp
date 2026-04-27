@@ -807,7 +807,7 @@ Returns:
         frames: [],
         animations: {},
         created_at: new Date().toISOString(),
-        provider: "openai-gpt-image-2",
+        provider: "openai/gpt-image-2",
         ...(poseFirstMode ? { pose_image_path: path.resolve(editSourcePath) } : {}),
       } as SpriteSheetManifest & { pose_image_path?: string };
 
@@ -928,7 +928,7 @@ Returns:
               id: generateAssetId(),
               type: "image",
               asset_type: "sprite",
-              provider: "openai-gpt-image-2",
+              provider: "openai/gpt-image-2",
               prompt: basePrompt,
               file_path: filePath,
               file_name: fileName,
@@ -954,7 +954,7 @@ Returns:
                   passed: frameQualityIssues.length === 0,
                   issues: frameQualityIssues,
                   fallback_used: frameFallbackUsed,
-                  provider: frameFallbackUsed ? "openai-fallback" : "openai-gpt-image-2",
+                  provider: frameFallbackUsed ? "openai-fallback" : "openai/gpt-image-2",
                 },
               } : {}),
             });
@@ -1229,7 +1229,7 @@ Returns:
                   id: generateAssetId(),
                   type: "image",
                   asset_type: "sprite",
-                  provider: "openai-edit",
+                  provider: "openai/edit",
                   prompt: editPrompt,
                   file_path: filePath,
                   file_name: fileName,

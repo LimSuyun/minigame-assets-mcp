@@ -97,17 +97,8 @@ export interface AssetCategory {
 export const ASSET_REQUIREMENT_MATRIX: AssetCategory[] = [
 
   // ─── Stage 0: Canon & Foundation ─────────────────────────────────────────
-  {
-    id: "app_logo",
-    name: "앱 로고 / 아이콘",
-    description: "앱스토어 아이콘 및 인게임 로고",
-    always_required: true,
-    required_for_mechanics: [],
-    recommended_for_mechanics: [],
-    only_for_mechanics: [],
-    tools: ["asset_generate_app_logo"],
-    stage: 0,
-  },
+  // app_logo는 Stage 6 (Marketing)으로 이동 — 캐릭터·배경·타이틀 텍스트 자산이
+  // 모두 준비된 뒤에 합성되어야 일관된 결과가 나오기 때문.
   {
     id: "style_reference_sheet",
     name: "스타일 레퍼런스 시트",
@@ -448,6 +439,17 @@ export const ASSET_REQUIREMENT_MATRIX: AssetCategory[] = [
     recommended_for_mechanics: [],
     only_for_mechanics: [],
     tools: ["asset_generate_thumbnail"],
+    stage: 6,
+  },
+  {
+    id: "app_logo",
+    name: "앱 로고 / 아이콘",
+    description: "앱스토어 아이콘 및 인게임 로고 — 캐릭터·배경·타이틀 텍스트가 준비된 뒤 합성",
+    always_required: true,
+    required_for_mechanics: [],
+    recommended_for_mechanics: [],
+    only_for_mechanics: [],
+    tools: ["asset_generate_app_logo"],
     stage: 6,
   },
 

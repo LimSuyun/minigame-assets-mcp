@@ -455,7 +455,7 @@ Returns:
         const baseAsset = {
           type: "image" as const,
           asset_type: "ui_element",
-          provider: "sharp-composite",
+          provider: "sharp/composite",
           prompt: `Character card for ${params.character_name} (${params.rarity})`,
           mime_type: cardMime,
           created_at: new Date().toISOString(),

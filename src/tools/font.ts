@@ -253,7 +253,7 @@ Args:
           id: generateAssetId(),
           type: "image",
           asset_type: "bitmap_font",
-          provider: "sharp_svg",
+          provider: "sharp/svg",
           prompt: `bitmap font sheet: ${params.character_set} ${fontSize}px`,
           file_path: sheetPath,
           file_name: sheetFileName,

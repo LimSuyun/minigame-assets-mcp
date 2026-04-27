@@ -335,7 +335,7 @@ Returns:
           id: generateAssetId(),
           type: "image",
           asset_type: params.asset_type,
-          provider: "openai-edit",
+          provider: "openai/edit",
           prompt: params.prompt,
           file_path: filePath,
           file_name: fileName,

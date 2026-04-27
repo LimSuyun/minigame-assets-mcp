@@ -46,6 +46,8 @@ import { registerTutorialTools } from "./tools/tutorial.js";
 import { registerFontTools } from "./tools/font.js";
 import { registerReviewTools } from "./tools/review.js";
 import { registerDeployTools } from "./tools/deploy.js";
+import { registerConsolidateTools } from "./tools/consolidate.js";
+import { registerTitleTextTools } from "./tools/title-text.js";
 
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
@@ -70,6 +72,7 @@ function createMcpServer(): McpServer {
   registerSpriteTools(server);
   registerUITools(server);
   registerEditTools(server);
+  registerTitleTextTools(server);
   registerLogoTools(server);
   registerMusicTools(server);
   registerVideoTools(server);
@@ -84,6 +87,7 @@ function createMcpServer(): McpServer {
   registerFontTools(server);
   registerReviewTools(server);
   registerDeployTools(server);
+  registerConsolidateTools(server);
 
   return server;
 }

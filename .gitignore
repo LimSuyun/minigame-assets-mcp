@@ -47,6 +47,9 @@ docs/archive/
 *.log
 npm-debug.log*
 
+# npm pack 산출물 (배포 검수용으로만 만드는 .tgz — commit/publish 모두 제외)
+*.tgz
+
 # TypeScript incremental build
 *.tsbuildinfo
 

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
 import { ensureDir } from "./files.js";
+import { resolveRegistryRoot } from "./registry-root.js";
 
 export const DEPLOY_MAP_FILENAME = "deploy-map.json";
 
@@ -39,7 +40,8 @@ export interface DeployMap {
 }
 
 export function getDeployMapPath(outputDir: string): string {
-  return path.resolve(outputDir, DEPLOY_MAP_FILENAME);
+  const root = resolveRegistryRoot(outputDir);
+  return path.resolve(root, DEPLOY_MAP_FILENAME);
 }
 
 export function loadDeployMap(outputDir: string): DeployMap {
@@ -61,9 +63,10 @@ export function loadDeployMap(outputDir: string): DeployMap {
 }
 
 export function saveDeployMap(outputDir: string, map: DeployMap): void {
-  ensureDir(outputDir);
+  const root = resolveRegistryRoot(outputDir);
+  ensureDir(root);
   map.generated_at = new Date().toISOString();
-  fs.writeFileSync(getDeployMapPath(outputDir), JSON.stringify(map, null, 2), "utf-8");
+  fs.writeFileSync(path.resolve(root, DEPLOY_MAP_FILENAME), JSON.stringify(map, null, 2), "utf-8");
 }
 
 export function hashFile(filePath: string): string | null {
@@ -75,11 +78,12 @@ export function hashFile(filePath: string): string | null {
 
 /**
  * 마스터 경로를 매니페스트 키로 정규화한다.
- *  - outputDir 기준 상대경로
+ *  - 항상 registry 루트(`.minigame-assets/`) 기준 상대경로
  *  - POSIX 슬래시
  */
 export function toEntryKey(outputDir: string, masterAbsPath: string): string {
-  const rel = path.relative(path.resolve(outputDir), path.resolve(masterAbsPath));
+  const root = resolveRegistryRoot(outputDir);
+  const rel = path.relative(path.resolve(root), path.resolve(masterAbsPath));
   return rel.split(path.sep).join("/");
 }
 

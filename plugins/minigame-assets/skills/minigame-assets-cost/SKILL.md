@@ -50,8 +50,8 @@ version: 2.1.0
 | 캐릭터 베이스·스프라이트 | `gpt-image-2` high | 디테일·텍스트·일관성 우수 |
 | 배경 (정적) | `gpt-image-2` medium | 텍스트 없으면 high 불필요 |
 | 배경 parallax 레이어 | `Gemini Imagen-4 fast` | 투명도 네이티브 |
-| 앱 로고 | `gpt-image-1` high | 텍스트 포함 시 gpt-image-2 |
-| 썸네일·마케팅 | `gpt-image-2` high | 품질 최우선 |
+| 앱 로고 | `gpt-image-2` high | 타이틀 텍스트 PNG 1회 + 합성 (color_scheme별 1회). 캐릭터 미제공 시 대표 이미지 1회 추가 |
+| 썸네일·마케팅 | `gpt-image-2` edit | 배경·캐릭터·타이틀 텍스트 다중 레퍼런스 통합 합성 (품질 최우선) |
 | 프로토타입 전반 | `gpt-image-1-mini` low/medium | 스타일 확정 전 |
 
 ## 비용 추적 & 집계

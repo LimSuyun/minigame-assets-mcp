@@ -154,6 +154,7 @@ This tool stores a style guide JSON file that subsequent asset generation tools 
 
 Args:
   - game_name (string): Name of the game
+  - name_slug (string, optional): ASCII 영문 슬러그 (파일명·디렉터리명 안전화용). 한글/공백이 들어간 game_name 사용 시 강력 권장. 미지정 시 game_name에서 한글 보존 슬러그로 fallback.
   - genre (string): Game genre (e.g., "platformer", "RPG", "puzzle", "shooter")
   - art_style (string): Visual art style description (e.g., "pixel art 16-bit", "hand-drawn cartoon", "dark fantasy 3D")
   - color_palette (string[]): List of colors defining the palette (e.g., ["#1a1a2e", "#16213e", "#e94560"])
@@ -168,6 +169,8 @@ Returns:
   JSON with the saved concept details and file path.`,
       inputSchema: z.object({
         game_name: z.string().min(1).max(100).describe("Name of the game"),
+        name_slug: z.string().min(1).max(60).optional()
+          .describe("ASCII 영문 슬러그 (파일명용). 한글/공백 game_name이면 강력 권장"),
         genre: z.string().min(1).max(100).describe("Game genre (e.g., platformer, RPG, puzzle)"),
         art_style: z.string().min(1).max(500).describe("Visual art style (e.g., pixel art 16-bit, hand-drawn cartoon)"),
         color_palette: z.array(z.string()).min(1).max(20).describe("Color palette as hex codes or color names"),
@@ -192,6 +195,7 @@ Returns:
 
       const concept: GameConcept = {
         game_name: params.game_name,
+        ...(params.name_slug ? { name_slug: params.name_slug } : (existing?.name_slug ? { name_slug: existing.name_slug } : {})),
         genre: params.genre,
         art_style: params.art_style,
         color_palette: params.color_palette,
@@ -383,6 +387,8 @@ Returns:
   생성된 CONCEPT.md 파일 경로와 에셋 통계.`,
       inputSchema: z.object({
         game_name: z.string().min(1).max(100).describe("게임 이름"),
+        name_slug: z.string().min(1).max(60).optional()
+          .describe("ASCII 영문 슬러그 (파일명용). 한글/공백 game_name이면 강력 권장"),
         genre: z.string().min(1).max(100).describe("게임 장르 (예: casual defense shooter, RPG, puzzle)"),
         theme: z.string().min(1).max(500).describe("게임 테마 (예: Korean supernatural, cyberpunk)"),
         description: z.string().min(10).max(2000).describe("전체 게임 설명 및 분위기"),
@@ -444,6 +450,7 @@ Returns:
       // 동시에 game-concept.json도 업데이트 (기존 도구 호환성)
       const conceptJson: GameConcept = {
         game_name: params.game_name,
+        ...(params.name_slug ? { name_slug: params.name_slug } : {}),
         genre: params.genre,
         art_style: params.art_style,
         color_palette: params.color_palette,

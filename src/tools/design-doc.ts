@@ -256,7 +256,7 @@ Returns:
 
         // Stage별 권고 순서
         const stageRecommendations = [
-          { stage: 0, name: "Canon & Foundation", tools: ["asset_generate_size_spec", "asset_generate_app_logo", "asset_register_canon", "asset_generate_style_reference_sheet"] },
+          { stage: 0, name: "Canon & Foundation", tools: ["asset_generate_size_spec", "asset_register_canon", "asset_generate_style_reference_sheet"] },
           { stage: 1, name: "Characters", tools: ["asset_generate_character_base", "asset_generate_character_pose", "asset_generate_action_sprite"] },
           { stage: 2, name: "UI Structural", tools: ["asset_generate_ui_structural", "asset_generate_button_set", "asset_generate_hud_set", "asset_generate_popup_set"] },
           { stage: 3, name: "Backgrounds", tools: ["asset_generate_screen_background"] },
@@ -271,12 +271,12 @@ Returns:
         const screenCount = design.screens?.length || 0;
         const weaponCount = design.weapons?.length || 0;
         const estimatedAICalls =
-          1 +                              // logo
           charCount * 3 +                  // character base + 2 action sprites
           enemyCount * 2 +                 // enemy base + 1 action sprite
           weaponCount +                    // weapon icons
-          screenCount * 2 +               // background + parallax
+          screenCount * 2 +                // background + parallax
           3 +                              // UI button/HUD/popup sets
+          2 +                              // marketing logo (Stage 6): title text 1 + composite 1 (color_scheme="both"는 +1)
           (design.marketing?.generate_thumbnail ? 1 : 0);
 
         return {
@@ -531,9 +531,10 @@ Returns:
           if (screen.id.includes("menu") || screen.id.includes("main")) {
             assets.push(
               { id: `${screen.id}_bg`, asset_type: "background", size: sz(bgs?.full), tool: "asset_generate_screen_background", priority: 1, prompt_hint: `${styleHint}, main menu background` },
-              { id: `${screen.id}_logo`, asset_type: "logo", size: "1024×1024", tool: "asset_generate_app_logo", priority: 2, prompt_hint: `${design.game_name} game logo` },
-              { id: `${screen.id}_btn_play`, asset_type: "ui_button_md", size: sz(ui?.button_md), tool: "asset_generate_button_set", priority: 3, prompt_hint: `${styleHint}, play button` },
-              { id: `${screen.id}_panel`, asset_type: "ui_popup_panel", size: sz(ui?.popup_panel), tool: "asset_generate_ui_structural", priority: 4, prompt_hint: "Main menu panel" },
+              { id: `${screen.id}_btn_play`, asset_type: "ui_button_md", size: sz(ui?.button_md), tool: "asset_generate_button_set", priority: 2, prompt_hint: `${styleHint}, play button` },
+              { id: `${screen.id}_panel`, asset_type: "ui_popup_panel", size: sz(ui?.popup_panel), tool: "asset_generate_ui_structural", priority: 3, prompt_hint: "Main menu panel" },
+              // 로고는 Stage 6 (Marketing) 산출물 — 메뉴 화면에 노출되지만 캐릭터·배경·UI가 준비된 뒤에 합성된다
+              { id: `${screen.id}_logo`, asset_type: "logo", size: "1024×1024", tool: "asset_generate_app_logo", priority: 99, prompt_hint: `${design.game_name} game logo (Stage 6 마케팅 산출물)` },
             );
           } else if (screen.id.includes("gameplay") || screen.id.includes("game")) {
             assets.push(
@@ -1000,12 +1001,12 @@ Returns:
           "",
           "## Stage 0 — Canon & Foundation",
           `> 목표: 마스터 레퍼런스 에셋 확립. 모든 이후 Stage는 이 Canon을 기준으로 생성.`,
+          `> 주의: 앱 로고는 캐릭터·배경·타이틀 텍스트가 준비된 뒤 Stage 6 (Marketing) 에서 합성됩니다.`,
           "",
           "| # | Asset | Size | Tool | Status |",
           "|---|-------|------|------|--------|",
-          `| 1 | Game Logo (Canon) 🔴 | 1024×1024 | \`asset_generate_app_logo\` | ⬜ |`,
-          `| 2 | asset_size_spec.json 🔴 | — | \`asset_generate_size_spec\` | ${sizeSpecs ? "✅" : "⬜"} |`,
-          `| 3 | Style Reference Sheet 🔴 | auto | \`asset_generate_style_reference_sheet\` | ⬜ |`,
+          `| 1 | asset_size_spec.json 🔴 | — | \`asset_generate_size_spec\` | ${sizeSpecs ? "✅" : "⬜"} |`,
+          `| 2 | Style Reference Sheet 🔴 | auto | \`asset_generate_style_reference_sheet\` | ⬜ |`,
           "",
           "---",
           "",
@@ -1067,6 +1068,8 @@ Returns:
           ] : []),
           ...(hasMarketing ? [
             "## Stage 6 — Marketing",
+            `> 캐릭터·배경·타이틀 텍스트(\`title_text/\`) 자산이 모두 준비된 뒤 호출하세요.`,
+            `> \`asset_generate_app_logo\`/\`asset_generate_thumbnail\` 모두 캐릭터·배경 PNG와 \`title_text_image_path\`를 입력으로 함께 넘기는 것이 권장됩니다 (재사용·일관성).`,
             "",
             "| # | Asset | Size | Tool | Status |",
             "|---|-------|------|------|--------|",

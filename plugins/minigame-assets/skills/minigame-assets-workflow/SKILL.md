@@ -57,7 +57,7 @@ asset_generate_character_base
 | 4 | `asset_generate_weapons` | gpt-image-1 | 네이티브 투명 배경 |
 | 5 | `asset_generate_sprite_sheet` | gpt-image-2 edit | 1행 가로 스트립 기본, `chroma_key_bg: "magenta"` |
 | 6 | `asset_generate_screen_background` / `_loading_screen` / `_lobby_screen` | gpt-image-2 | parallax 레이어는 Gemini |
-| 7 | `asset_generate_app_logo`, `asset_plan_thumbnail` → `asset_generate_thumbnail` | — | 마케팅 |
+| 7 | `asset_generate_app_logo`, `asset_plan_thumbnail` → `asset_generate_thumbnail` | — | 마케팅 — **반드시 캐릭터·배경·타이틀 텍스트 PNG가 준비된 뒤** 호출. `character_image_paths` / `background_image_path` / `title_text_image_path` 를 함께 넘기면 재사용·일관성 보장 |
 | 8 | `asset_review`, `asset_validate`, `asset_list_missing`, `asset_generate_atlas_json` | — | 품질 검토 + Atlas |
 | 9 | `asset_approve` → `asset_deploy` | — | 승인된 마스터만 코드 경로로 리사이즈 복사 |
 

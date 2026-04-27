@@ -86,13 +86,13 @@
 | `asset_generate_tutorial_overlays` | 스포트라이트·화살표 오버레이 |
 | `asset_generate_guide_npc` | 가이드 NPC 표정 세트 |
 
-## 마케팅
+## 마케팅 (Stage 6 — 캐릭터·배경·타이틀 텍스트 자산이 준비된 뒤 호출)
 
 | 도구 | 설명 |
 |---|---|
-| `asset_generate_app_logo` | 앱 로고 600×600 |
+| `asset_generate_app_logo` | 앱 로고 600×600 — 캐릭터/대표 + 타이틀 텍스트 PNG → gpt-image-2 edit 통합 합성 |
 | `asset_plan_thumbnail` | 썸네일 구성 계획 (생성 없음) |
-| `asset_generate_thumbnail` | 썸네일 1932×828 (캐릭터·배경 레퍼런스 합성) |
+| `asset_generate_thumbnail` | 썸네일 1932×828 — 배경·캐릭터 + 타이틀 텍스트 PNG → gpt-image-2 edit 통합 합성 |
 | `asset_generate_store_banner` | 플랫폼별 배너 (Google Play / App Store) |
 | `asset_generate_store_screenshots` | 씬별 스크린샷 + 캡션 오버레이 |
 | `asset_generate_social_media_pack` | Instagram/Twitter/Facebook 게시물 세트 |

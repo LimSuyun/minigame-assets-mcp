@@ -97,7 +97,7 @@ Args:
         })).min(1).describe("List of screenshot scenes"),
         style_description: z.string().optional()
           .describe("Visual style description for AI-generated backgrounds"),
-        output_dir: z.string().optional().describe("Output directory"),
+        output_dir: z.string().optional().describe("출력 디렉토리. 기본은 본 도구의 표준 sub-dir(`.minigame-assets/marketing/<asset_type>/`)을 자동 결정합니다. registry/deploy-map은 어떤 sub-dir을 지정하더라도 항상 프로젝트 루트(`.minigame-assets/`) 한 곳에 통합 저장됩니다."),
       }).strict(),
       annotations: {
         readOnlyHint: false,
@@ -258,7 +258,7 @@ Args:
           .describe("Path to key character/scene image for compositing"),
         style_description: z.string().optional()
           .describe("Visual style description for AI generation"),
-        output_dir: z.string().optional().describe("Output directory"),
+        output_dir: z.string().optional().describe("출력 디렉토리. 기본은 본 도구의 표준 sub-dir(`.minigame-assets/marketing/<asset_type>/`)을 자동 결정합니다. registry/deploy-map은 어떤 sub-dir을 지정하더라도 항상 프로젝트 루트(`.minigame-assets/`) 한 곳에 통합 저장됩니다."),
       }).strict(),
       annotations: {
         readOnlyHint: false,
@@ -408,7 +408,7 @@ Args:
         caption: z.string().optional().describe("Caption or tagline text"),
         style_description: z.string().optional()
           .describe("Visual style description for AI generation"),
-        output_dir: z.string().optional().describe("Output directory"),
+        output_dir: z.string().optional().describe("출력 디렉토리. 기본은 본 도구의 표준 sub-dir(`.minigame-assets/marketing/<asset_type>/`)을 자동 결정합니다. registry/deploy-map은 어떤 sub-dir을 지정하더라도 항상 프로젝트 루트(`.minigame-assets/`) 한 곳에 통합 저장됩니다."),
       }).strict(),
       annotations: {
         readOnlyHint: false,

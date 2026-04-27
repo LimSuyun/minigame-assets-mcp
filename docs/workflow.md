@@ -39,9 +39,10 @@
    ├─ asset_generate_loading_screen       ← 로딩 (하단 20% 프로그레스바 영역)
    └─ asset_generate_lobby_screen         ← 로비/메뉴 (menu_side: left/right/center/bottom)
 
-7. 마케팅
-   ├─ asset_generate_app_logo             ← 600×600
-   └─ asset_generate_thumbnail            ← 1932×828
+7. 마케팅 (Stage 6 — 캐릭터·배경·타이틀 텍스트 자산이 준비된 뒤 호출)
+   ├─ asset_generate_app_logo             ← 600×600 (캐릭터/대표 이미지 + 타이틀 텍스트 PNG → gpt-image-2 edit 합성)
+   └─ asset_generate_thumbnail            ← 1932×828 (배경·캐릭터 + 타이틀 텍스트 PNG → gpt-image-2 edit 합성)
+      ※ 두 도구 모두 `title_text_image_path` 입력으로 워드마크 PNG를 재사용할 수 있습니다 (.minigame-assets/title_text/)
 
 8. 검토 + 검증
    ├─ asset_review                        ← 구조·크로마·비주얼 AI 종합
@@ -67,6 +68,8 @@ GPT-5.4-nano 가 짧은 한국어/영어 입력을 상세 영문 프롬프트로
 
 ## 출력 구조
 
+> **registry/deploy-map 통합**: `assets-registry.json` / `deploy-map.json` 은 어떤 도구가 어떤 sub-dir(`logos/`, `marketing/app-icon/` 등)을 출력으로 쓰더라도 **항상 프로젝트 루트(`.minigame-assets/`) 한 곳에만** 저장됩니다. `provider` 표기는 `openai/<model>` 형식으로 통일.
+
 ```
 .minigame-assets/                ← 마스터 전용 (gitignore 권장)
 ├── CONCEPT.md                   ← 게임 컨셉 (아트 스타일, 에셋 목록)
@@ -84,6 +87,7 @@ GPT-5.4-nano 가 짧은 한국어/영어 입력을 상세 영문 프롬프트로
 ├── backgrounds/                 ← 배경
 ├── logos/                       ← 앱 로고
 ├── thumbnails/                  ← 썸네일
+├── title_text/                  ← 타이틀 워드마크 PNG (재사용 자산, 로고/썸네일 공유)
 ├── music/                       ← 음악
 └── videos/                      ← 영상
 ```

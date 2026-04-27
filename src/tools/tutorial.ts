@@ -268,7 +268,7 @@ Args:
               id: generateAssetId(),
               type: "image",
               asset_type: "tutorial_overlay",
-              provider: "sharp_svg",
+              provider: "sharp/svg",
               prompt: `tutorial overlay: ${variant}`,
               file_path: filePath,
               file_name: fileName,
