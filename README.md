@@ -18,6 +18,10 @@ claude plugin install minigame-assets@minigame-assets-mcp
 
 설치 후 Claude Code에서 `/reload-plugins`. `OPENAI_API_KEY`는 셸에 미리 export 해두세요 (`export OPENAI_API_KEY=sk-...`).
 
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
 플러그인 방식은 슬래시 명령(`/minigame-assets:create-minigame-assets`, `/minigame-assets:setup-minigame-assets-concept`, `/minigame-assets:minigame-assets-help`)과 자동 트리거 워크플로우 스킬을 함께 제공합니다.
 
 **옵션 B. MCP 서버 직접 등록**
