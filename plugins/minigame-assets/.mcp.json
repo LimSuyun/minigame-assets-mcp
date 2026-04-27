@@ -1,6 +1,8 @@
 {
-  "minigame-assets": {
-    "command": "npx",
-    "args": ["-y", "minigame-assets-mcp@latest"]
+  "mcpServers": {
+    "minigame-assets": {
+      "command": "npx",
+      "args": ["-y", "minigame-assets-mcp@latest"]
+    }
   }
 }
