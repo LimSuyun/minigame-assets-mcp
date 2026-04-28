@@ -26,7 +26,6 @@ import { randomUUID } from "node:crypto";
 import { registerConceptTools } from "./tools/concept.js";
 import { registerImageTools } from "./tools/image.js";
 import { registerMusicTools } from "./tools/music.js";
-import { registerVideoTools } from "./tools/video.js";
 import { registerSpriteTools } from "./tools/sprite.js";
 import { registerProjectDetectorTools } from "./tools/project-detector.js";
 import { registerEditTools } from "./tools/edit.js";
@@ -75,7 +74,6 @@ function createMcpServer(): McpServer {
   registerTitleTextTools(server);
   registerLogoTools(server);
   registerMusicTools(server);
-  registerVideoTools(server);
   registerAssetUtilTools(server);
   registerThumbnailTools(server);
   registerEffectTools(server);

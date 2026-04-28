@@ -3,6 +3,16 @@ import * as fs from "fs";
 import * as path from "path";
 import { resolveOutputFormat, type ImageFormat } from "./image-output.js";
 
+// ─── 시트 변(dim) 안전 한도 ─────────────────────────────────────────────────
+//
+// libwebp(VP8)는 16,383px가 절대 한도지만, 모바일 GPU 텍스처 한도가
+// 4,096~8,192 사이에서 크게 흔들리므로 게임 런타임에서 실제 사용 가능한
+// 안전선은 4,096px이다. 이 값을 기본 가드로 두고, 호출자가 더 넓은
+// 한도가 필요하면 maxSheetDim 인자로 override 한다.
+export const DEFAULT_MAX_SHEET_DIM = 4096;
+/** libwebp 절대 한도 — 이 값 이상이면 인코더 자체가 거부 */
+export const WEBP_HARD_LIMIT = 16383;
+
 // ─── 타입 ─────────────────────────────────────────────────────────────────────
 
 export interface FrameInfo {
@@ -43,6 +53,12 @@ export async function composeSpritSheet(
    * extension, which may differ from `outputPath`'s extension.
    */
   format?: ImageFormat,
+  /**
+   * 시트 한 변(dim)의 픽셀 한도. 미지정 시 DEFAULT_MAX_SHEET_DIM(4096).
+   * 계산된 sheetW/sheetH가 이 값을 넘으면 cols을 자동으로 줄여 그리드로
+   * 재배치한다. 한도 내에 들어가는 그리드 자체가 불가능하면 throw.
+   */
+  maxSheetDim: number = DEFAULT_MAX_SHEET_DIM,
 ): Promise<ComposedSheet> {
   if (frames.length === 0) throw new Error("No frames to compose");
 
@@ -70,13 +86,47 @@ export async function composeSpritSheet(
   );
 
   // 레이아웃 결정: cols 인자 우선, 없으면 정사각형 sqrt 그리드
-  const effectiveCols = cols && cols > 0 ? Math.min(cols, frames.length) : Math.ceil(Math.sqrt(frames.length));
-  const rows = Math.ceil(frames.length / effectiveCols);
-
   const cellW = frameW + padding;
   const cellH = frameH + padding;
-  const sheetW = effectiveCols * cellW - padding;
-  const sheetH = rows * cellH - padding;
+  let effectiveCols = cols && cols > 0 ? Math.min(cols, frames.length) : Math.ceil(Math.sqrt(frames.length));
+  let rows = Math.ceil(frames.length / effectiveCols);
+  let sheetW = effectiveCols * cellW - padding;
+  let sheetH = rows * cellH - padding;
+
+  // 한도 검사 + 자동 그리드 재배치
+  // - 1×N 가로 스트립이 WebP 16,383px 한도를 넘기는 케이스가 가장 흔함
+  // - 한도 안에 들어가는 cols로 줄이고 rows를 늘려 재배치
+  if (sheetW > maxSheetDim || sheetH > maxSheetDim) {
+    const maxColsByWidth = Math.max(1, Math.floor((maxSheetDim + padding) / cellW));
+    const maxRowsByHeight = Math.max(1, Math.floor((maxSheetDim + padding) / cellH));
+    const capacity = maxColsByWidth * maxRowsByHeight;
+
+    if (frames.length > capacity) {
+      throw new Error(
+        `spritesheet 합성 실패: 프레임 ${frames.length}개 × ${frameW}×${frameH}는 ` +
+        `단일 시트 한도(${maxSheetDim}px)에 들어갈 수 없습니다 ` +
+        `(최대 그리드 ${maxColsByWidth}×${maxRowsByHeight}=${capacity}프레임). ` +
+        `해결책: (1) frame_render_size로 프레임 다운스케일 (2) maxSheetDim을 ` +
+        `WEBP_HARD_LIMIT(${WEBP_HARD_LIMIT})까지 올리되 모바일 GPU 텍스처 한도에 ` +
+        `주의 (3) 시트 분할 / 개별 프레임 + manifest로 사용.`
+      );
+    }
+
+    const oldCols = effectiveCols;
+    // 한도 내에서 가능한 가장 정사각형에 가까운 그리드를 선택
+    const idealCols = Math.min(maxColsByWidth, Math.ceil(Math.sqrt(frames.length)));
+    effectiveCols = Math.max(1, Math.min(maxColsByWidth, idealCols));
+    rows = Math.ceil(frames.length / effectiveCols);
+    sheetW = effectiveCols * cellW - padding;
+    sheetH = rows * cellH - padding;
+
+    // stderr로 안내 — MCP stdout은 오염하면 안 됨
+    console.error(
+      `[spritesheet-composer] ${oldCols}×${Math.ceil(frames.length / oldCols)} 레이아웃이 ` +
+      `한도(${maxSheetDim}px) 초과 → ${effectiveCols}×${rows} 그리드로 자동 재배치 ` +
+      `(${sheetW}×${sheetH}px)`
+    );
+  }
 
   // 각 프레임의 좌표 계산 + composite 입력 준비
   type SharpComposite = { input: Buffer; left: number; top: number };

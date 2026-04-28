@@ -816,7 +816,9 @@ Args:
   - export_formats (string[], optional): Engine-specific export formats.
       "individual" / "phaser" / "cocos" / "unity". Default: ["individual", "phaser"].
   - sheet_padding (number, optional): Pixel gap between frames (default: 0)
-  - sheet_cols (number, optional): 미지정 시 1행 가로 스트립
+  - sheet_cols (number, optional): 미지정 시 ceil(sqrt(N)) 정사각 그리드 (모바일 GPU 안전).
+      composer는 4096px 한도 초과 시 자동으로 그리드로 재배치하므로 1행 스트립을
+      강제하려면 sheet_cols=N을 넣더라도 한도 초과 시 자동 재배치됨.
   - frame_padding (number, optional): Padding around each frame (default: 20)
   - chroma_key_bg (string, optional): 마젠타 권장
   - output_dir (string, optional)
@@ -855,7 +857,7 @@ Returns:
         sheet_padding: z.number().int().min(0).max(64).default(0)
           .describe("Pixel padding between frames in the composed sheet"),
         sheet_cols: z.number().int().min(1).optional()
-          .describe("스프라이트 시트 열 수. 미지정 시 1행 가로 스트립(cols = 전체 프레임 수). 2행 그리드 원하면 Math.ceil(N/2) 지정."),
+          .describe("스프라이트 시트 열 수. 미지정 시 ceil(sqrt(N)) 정사각 그리드(모바일 GPU 한도 4096px 안전). composer가 한도 초과 시 자동 그리드 재배치하므로 큰 값 넣어도 안전."),
         frame_padding: z.number().int().min(0).max(300).default(20)
           .describe("Padding pixels added around each individual sprite frame (prevents edge cropping). Default: 20"),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
@@ -1317,8 +1319,10 @@ Returns:
         if (frameInfos.length > 0) {
           try {
             const sheetPathBase = path.join(spriteDir, `${safeCharName}_sheet.png`);
-            // 기본: 1행 가로 스트립 (cols = frames.length). sheet_cols로 override 가능.
-            const effectiveCols = params.sheet_cols ?? frameInfos.length;
+            // 기본: 정사각형에 가까운 sqrt 그리드 (모바일 GPU 텍스처 한도 안전).
+            // sheet_cols 명시 시 그 값을 우선하되, composer가 한도 초과 시
+            // 자동으로 그리드로 재배치한다.
+            const effectiveCols = params.sheet_cols ?? Math.ceil(Math.sqrt(frameInfos.length));
             // Engine-aware format for the sheet itself (WebP on Phaser/Cocos/Godot,
             // PNG on Unity/unknown). Atlas JSON / plist will pick up the real
             // extension from the returned `sheet.sheetPath`.

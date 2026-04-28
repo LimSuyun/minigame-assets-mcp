@@ -2,6 +2,71 @@
 
 이 프로젝트의 주요 변경 사항. SemVer 를 따르며, BREAKING 항목은 명시적으로 표시한다.
 
+## 3.2.0 — 2026-04-28
+
+> 마케팅 도구 전반 재설계 + video 워크플로 폐기 + 스프라이트 시트 한도 가드. BREAKING 다수(시그니처 변경 / 도구 제거)가 포함되지만 SemVer 상 minor 로 발행 — npm 의 v3 라인 유지를 위함. **CHANGELOG 의 BREAKING 섹션을 반드시 참조하세요.**
+
+### 🔄 동작 변경 — 마케팅 도구 재설계
+
+- **`asset_generate_social_media_pack` v2** — 파이프라인 전면 재작성.
+  - **AI 호출 1회만** — gpt-image-2 로 1024×1024 "atmosphere plate" 한 장만 생성 (캐릭터/텍스트/UI 자리 비움).
+  - 4 플랫폼 비율(1080×1080 post / 1080×1920 story / 1200×675 twitter / 1200×630 fb)을 sharp mirror+blur extend 로 빌드 — 옛 v1 의 cover-crop 정보 손실 해결. 캐릭터·로고가 변두리를 덮어 mirror 흔적 거의 안 보임.
+  - `key_visual_path` 합성에 drop shadow + 플랫폼별 anchor (post=중앙, story=중앙 상단, banner류=좌측 1/3) + 발 캐치 위치 정렬 도입.
+  - 신규 옵션: `logo_path?` (코너 safe-zone 합성), `vignette` (기본 true, 가장자리 어둡게).
+  - **`caption` 입력 제거** — 텍스트 합성 자체를 폐지. 텍스트가 필요하면 외부에서 별도 합성.
+  - description 상단에 "명시 요청 전용" ⚠️ 표기 — 기본 마케팅 워크플로(스토어 배너·썸네일·로고)에는 포함 안 됨.
+
+- **`asset_generate_store_screenshots` 재정의** — "AI mockup 배경 + 텍스트" → "사용자 캡쳐 + 캡션 합성" 으로 의미 자체가 바뀜.
+  - **`capture_image_path` 필수화** — 각 scene 마다 실제 게임 플레이 캡쳐 PNG 경로 필요. 사전 검증으로 누락 시 명확한 에러 + 시뮬레이터/실기기 캡쳐 안내.
+  - **AI 호출 0회** — 캡쳐를 플랫폼 비율(iOS 1290×2796 / Android 1080×1920) cover fit + 캡션 SVG 합성만 수행. provider 항상 `"sharp"`.
+  - **제거된 입력**: `background_image_path`, `style_description` (의미 중복 / 더 이상 AI fallback 없음).
+
+### 🧱 데이터 모델 — asset-requirements 카테고리 재구성 (`src/utils/asset-requirements.ts`)
+
+- **`AssetCategory.requires_explicit_request?: boolean` 신규 필드** — `true` 면 `analyzeAssetRequirements` 가 자동 추천 단계에서 항상 `optional` 로 분류 (사용자가 도구를 직접 부를 때만 의미가 있는 카테고리에 사용).
+- **`marketing_store` 통합 카테고리 분리** → 3개로:
+  - `marketing_screenshots` (`requires_explicit_request: true`) — 캡쳐 파일이 있어야 의미.
+  - `marketing_banner` — 기존 `hasMarketing` 자동 추천 흐름 유지.
+  - `marketing_social` (`requires_explicit_request: true`) — 마케팅 캠페인 시점에 명시 호출.
+- `marketing_thumbnail` 자동 추천 흐름은 그대로.
+
+### 🎬 도구 제거 — `asset_generate_video_openai`
+
+- OpenAI Sora API 가 **2026-09-24 종료 예정**이고 공식 후속 영상 모델이 API 로 제공되지 않음. 본 프로젝트에서 영상 자산 워크플로를 운영하지 않기로 결정해 도구·서비스를 제거.
+- 제거 대상: `src/tools/video.ts` 파일, `services/openai.ts` 의 `generateVideoOpenAI` 함수 + Sora 관련 타입(`SoraModel`, `SoraSize`, `OpenAIVideoParams`, `OpenAIVideoResult`), `constants.ts` 의 `VIDEO_TYPES` 상수, `types.ts` `GeneratedAsset.type` 의 `"video"` 멤버.
+- 외부 문서 (`README.md`, `docs/workflow.md`, `docs/advanced.md`, `docs/tools.md`) 의 영상 언급 제거. 내부 변천사 문서(`docs/internals/process.md`)는 기록 보존.
+- 향후 영상 기능이 필요해지면 다른 provider (Runway / Google Veo / Kling 등) 로 별도 통합 필요.
+
+### 📐 스프라이트 시트 한도 가드 (`src/utils/spritesheet-composer.ts`)
+
+- **신규 상수**: `DEFAULT_MAX_SHEET_DIM = 4096` (모바일 GPU 텍스처 광범위 호환선), `WEBP_HARD_LIMIT = 16383` (libwebp VP8 절대 한도).
+- **`composeSpritSheet` 한도 검사 + 자동 그리드 재배치**:
+  - 새 인자 `maxSheetDim?: number` (기본 `DEFAULT_MAX_SHEET_DIM`).
+  - 사용자가 1×N 가로 스트립을 요청해도 시트 변(dim) 이 한도를 넘으면 자동으로 sqrt 에 가까운 그리드로 재배치, stderr 로 알림.
+  - 한도 안 그리드 자체가 불가능하면 throw + 해결책(프레임 다운스케일 / `maxSheetDim` 상향 / 시트 분할) 명시.
+- **`asset_generate_sprite_sheet` 의 default `sheet_cols` 변경** — 1×N 가로 스트립 → `Math.ceil(Math.sqrt(N))` 정사각 그리드. 사용자가 명시한 `sheet_cols` 는 그대로 우선하되 composer 가 한도 초과 시 자동 재배치.
+- 이 변경으로 "20프레임 1행 스트립이 WebP 16,383px 한도 초과 → 합성 시트 합성 실패" 케이스가 해결됨.
+
+### 🧪 테스트
+
+- `tests/spritesheet-composer.test.ts` 신설 — 4 케이스 (정상 cols 유지 / 1×N 한도 초과 자동 재배치 / sqrt 그리드 default / 단일 프레임 한도 초과 시 에러). 23 → **27 tests**.
+
+### 🛠 내부 정리
+
+- `src/services/openai.ts` 영상 섹션 — 제거 사유 코멘트 1줄로 압축.
+- `scripts/smoke-marketing-v2.mjs` — 마케팅 v2 + screenshots 시각 결과 검증용 ad-hoc 스크립트 (test-output/smoke/ 결과는 git ignored).
+- `package.json` description 에서 "video" 항목 제거.
+
+### ⚠️ BREAKING — 마이그레이션 가이드
+
+- **`asset_generate_video_openai` 도구 제거**. 호출 시 `Tool not found` 에러. 영상 기능이 필요하면 다른 provider 로 별도 통합 필요.
+- **`asset_generate_social_media_pack` 시그니처 변경** — `caption` 입력 제거. 호출 코드에서 해당 인자 삭제 필요 (zod strict reject).
+- **`asset_generate_store_screenshots` 시그니처 변경** — `screenshots[].capture_image_path` 필수, `screenshots[].background_image_path` / `style_description` 입력 제거. 캡쳐 파일이 없으면 호출 자체가 실패. AI mockup 으로 채우던 흐름은 더 이상 지원하지 않음.
+- **카테고리 ID `marketing_store` 소멸** — 외부에서 `analyzeAssetRequirements` 결과의 `marketing_store` 에 의존했다면 `marketing_screenshots` / `marketing_banner` / `marketing_social` 로 분기 변경 필요.
+- **`GeneratedAsset.type` 에서 `"video"` 제거** — registry 에 기존 video 자산이 있다면 type narrowing 시 컴파일 에러. 외부 코드에서 video 타입 분기를 사용한다면 해당 분기 제거.
+- **`VIDEO_TYPES` 상수 제거** — 외부에서 import 했다면 컴파일 에러. 영상 워크플로 자체가 사라졌으므로 제거가 정답.
+- **`asset_generate_sprite_sheet` 의 default 시트 레이아웃 변경** — 옛 동작(1×N 가로 스트립)은 사실상 항상 한도에 걸렸으므로 의미 있는 행위 변경은 아니지만, 정사각 그리드를 명시적 default 로 잡은 만큼 atlas JSON / Phaser anims index 매핑 코드가 cols/rows 전제에 의존했다면 검토 필요.
+
 ## 3.1.1 — 2026-04-27
 
 > 마케팅 자산 합성 흐름 개편 + 시퀀스 스프라이트 패턴 + registry/deploy-map 통합 + spec-aware 사이즈 정합성. 변경 범위는 SemVer 상 minor 급(신규 도구 2개 + BREAKING 항목)이지만 npm 의 `3.1.0` 이 이미 publish 되어 있어 **patch bump (`3.1.1`)** 로 발행. CHANGELOG 의 BREAKING 섹션을 반드시 참조하세요.

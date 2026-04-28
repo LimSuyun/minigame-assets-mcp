@@ -36,10 +36,9 @@ export LOCAL_MUSIC_SERVER_URL=http://localhost:7860
 
 ## 비동기 Job
 
-오래 걸리는 생성(영상, 음악 등)은 job ID를 반환합니다:
+오래 걸리는 생성(음악 등)은 job ID를 반환합니다:
 
 ```
-asset_generate_video_openai → { job_id: "xxx" }
 asset_get_job_result { job_id: "xxx" } → { status: "done", file_path: "..." }
 ```
 

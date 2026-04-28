@@ -88,8 +88,7 @@ GPT-5.4-nano 가 짧은 한국어/영어 입력을 상세 영문 프롬프트로
 ├── logos/                       ← 앱 로고
 ├── thumbnails/                  ← 썸네일
 ├── title_text/                  ← 타이틀 워드마크 PNG (재사용 자산, 로고/썸네일 공유)
-├── music/                       ← 음악
-└── videos/                      ← 영상
+└── music/                       ← 음악
 ```
 
 **`.gitignore` 권장:**

@@ -20,7 +20,7 @@ export interface GameConcept {
 
 export interface GeneratedAsset {
   id: string;
-  type: "image" | "music" | "video";
+  type: "image" | "music";
   asset_type: string;
   /** "openai/<model>" 형식 권장 — registry 통계·필터의 기준이 된다 */
   provider: string;

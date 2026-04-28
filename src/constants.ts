@@ -105,10 +105,3 @@ export const MUSIC_TYPES = [
   "menu_theme",
 ] as const;
 
-export const VIDEO_TYPES = [
-  "cutscene",
-  "trailer",
-  "gameplay_loop",
-  "intro",
-  "outro",
-] as const;

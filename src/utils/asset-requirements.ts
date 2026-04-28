@@ -90,6 +90,12 @@ export interface AssetCategory {
   tools: string[];
   /** 관련 Stage (0~6) */
   stage: number;
+  /**
+   * true면 자동 추천 단계에서 항상 "optional"로 분류 — 사용자가 명시적으로
+   * 요청할 때만 사용. 캡쳐 파일이 필요하거나(스크린샷), 비용·런타임이 크거나
+   * 마케팅 캠페인 단위로만 의미가 있는 도구에 적용한다.
+   */
+  requires_explicit_request?: boolean;
 }
 
 // ─── 에셋 필요도 매트릭스 ────────────────────────────────────────────────────
@@ -420,15 +426,39 @@ export const ASSET_REQUIREMENT_MATRIX: AssetCategory[] = [
 
   // ─── Stage 6: Marketing ───────────────────────────────────────────────────
   {
-    id: "marketing_store",
-    name: "스토어 에셋 (스크린샷·배너·소셜)",
-    description: "앱스토어 스크린샷, 피처드 배너, 소셜 미디어 홍보 이미지",
+    id: "marketing_screenshots",
+    name: "스토어 스크린샷 (실제 플레이 캡쳐 합성)",
+    description: "사용자가 제공한 게임 플레이 캡쳐 PNG에 캡션을 합성해 iOS/Android 스토어 규격으로 출력 — 캡쳐 파일이 있어야 의미 있음",
     always_required: false,
     required_for_mechanics: [],
     recommended_for_mechanics: [],
-    only_for_mechanics: [],  // 퍼블리싱 시 필요 (always recommended)
-    tools: ["asset_generate_store_screenshots", "asset_generate_store_banner", "asset_generate_social_media_pack"],
+    only_for_mechanics: [],
+    tools: ["asset_generate_store_screenshots"],
     stage: 6,
+    requires_explicit_request: true,
+  },
+  {
+    id: "marketing_banner",
+    name: "스토어 피처드 배너",
+    description: "Google Play / App Store 피처드 배너 이미지",
+    always_required: false,
+    required_for_mechanics: [],
+    recommended_for_mechanics: [],
+    only_for_mechanics: [],
+    tools: ["asset_generate_store_banner"],
+    stage: 6,
+  },
+  {
+    id: "marketing_social",
+    name: "SNS 홍보 이미지 팩",
+    description: "Instagram/Twitter/Facebook 4비율 홍보 이미지 — 마케팅 캠페인 시점에 명시적으로 요청",
+    always_required: false,
+    required_for_mechanics: [],
+    recommended_for_mechanics: [],
+    only_for_mechanics: [],
+    tools: ["asset_generate_social_media_pack"],
+    stage: 6,
+    requires_explicit_request: true,
   },
   {
     id: "marketing_thumbnail",
@@ -718,6 +748,18 @@ export function analyzeAssetRequirements(design: GameDesign): AssetRequirementsR
       };
     }
 
+    // 명시적 요청 전용 카테고리 — 자동 추천 단계에서는 항상 optional
+    if (cat.requires_explicit_request) {
+      return {
+        category_id: cat.id,
+        category_name: cat.name,
+        level: "optional" as RequirementLevel,
+        reason: "사용자가 명시적으로 요청할 때만 생성",
+        tools: cat.tools,
+        stage: cat.stage,
+      };
+    }
+
     // 특수 케이스: 캐릭터 관련
     if ((cat.id === "character_base" || cat.id === "sprite_idle") && hasCharacters) {
       return {
@@ -776,7 +818,7 @@ export function analyzeAssetRequirements(design: GameDesign): AssetRequirementsR
     }
 
     // 마케팅 카테고리 특수 처리
-    if ((cat.id === "marketing_store" || cat.id === "marketing_thumbnail") && hasMarketing) {
+    if ((cat.id === "marketing_banner" || cat.id === "marketing_thumbnail") && hasMarketing) {
       return {
         category_id: cat.id,
         category_name: cat.name,

@@ -98,7 +98,7 @@
 | `asset_generate_social_media_pack` | Instagram/Twitter/Facebook 게시물 세트 |
 | `asset_generate_style_reference_sheet` | 스타일 레퍼런스 시트 |
 
-## 음악 · 영상
+## 음악
 
 | 도구 | 설명 |
 |---|---|
@@ -106,7 +106,6 @@
 | `asset_generate_bgm` | 카테고리별 BGM 일괄 |
 | `asset_generate_sfx` | 카테고리별 SFX 일괄 (AudioGen) |
 | `asset_edit_music` | 음악 파라미터 수정 |
-| `asset_generate_video_openai` | OpenAI Sora (5~20초) |
 
 ## Canon (마스터 레퍼런스)
 

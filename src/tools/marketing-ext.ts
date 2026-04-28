@@ -64,25 +64,26 @@ export function registerMarketingExtTools(server: McpServer): void {
   server.registerTool(
     "asset_generate_store_screenshots",
     {
-      title: "Generate App Store Screenshots",
-      description: `Generate app store screenshot sets for iOS and/or Android platforms.
+      title: "Compose App Store Screenshots from Real Captures",
+      description: `⚠️  실제 게임 플레이 캡쳐 PNG가 있어야 사용할 수 있습니다.
+   각 scene마다 capture_image_path 가 필수입니다 — AI 자동 생성 fallback은 없습니다.
+   캡쳐 파일이 없으면 시뮬레이터/실기기에서 직접 캡쳐해 입력해 주세요.
 
-For each screenshot scene:
-  1. If background_image_path is provided → resize + blur overlay via Sharp
-  2. Otherwise → generate background with gpt-image-1
-  3. Composite caption text SVG overlay on top or bottom
-  4. Resize to platform-specific dimensions and save
+처리 흐름 (AI 호출 0회):
+  1. 사용자가 제공한 capture PNG 로드
+  2. 플랫폼 비율(iOS 1290×2796 / Android 1080×1920) cover fit 리사이즈
+  3. 캡션 SVG 오버레이 합성 (스토어 가이드라인상 텍스트 권장)
+  4. 엔진별 포맷으로 저장 + registry 등록
 
 Output sizes:
   - iOS:     1290×2796 px  → {scene}_ios.png
   - Android: 1080×1920 px  → {scene}_android.png
 
 Args:
-  - platform: Target platform(s) ("ios", "android", "both")
-  - game_name: Name of the game (used in prompts)
-  - screenshots: List of screenshot scenes with caption text
-  - style_description: Optional visual style for AI-generated backgrounds
-  - output_dir: Output directory`,
+  - platform: 출력할 플랫폼(s) — "ios" | "android" | "both"
+  - game_name: 게임명 (메타데이터)
+  - screenshots: scene/caption/caption_position/capture_image_path 배열
+  - output_dir: 출력 디렉토리`,
       inputSchema: z.object({
         platform: z.enum(["ios", "android", "both"]).default("both")
           .describe("Target platform(s)"),
@@ -92,11 +93,9 @@ Args:
           caption: z.string().describe("Caption text to overlay"),
           caption_position: z.enum(["top", "bottom"]).default("top")
             .describe("Position of the caption overlay"),
-          background_image_path: z.string().optional()
-            .describe("Path to existing background image (optional)"),
-        })).min(1).describe("List of screenshot scenes"),
-        style_description: z.string().optional()
-          .describe("Visual style description for AI-generated backgrounds"),
+          capture_image_path: z.string()
+            .describe("실제 게임 플레이 캡쳐 PNG 경로 (필수)"),
+        })).min(1).describe("List of screenshot scenes — capture_image_path required for each"),
         output_dir: z.string().optional().describe("출력 디렉토리. 기본은 본 도구의 표준 sub-dir(`.minigame-assets/marketing/<asset_type>/`)을 자동 결정합니다. registry/deploy-map은 어떤 sub-dir을 지정하더라도 항상 프로젝트 루트(`.minigame-assets/`) 한 곳에 통합 저장됩니다."),
       }).strict(),
       annotations: {
@@ -120,45 +119,32 @@ Args:
           platforms.push({ key: "android", width: 1080, height: 1920 });
         }
 
+        // 사전 검증: 모든 캡쳐 파일이 존재해야 함
+        const missing = params.screenshots
+          .filter(s => !fs.existsSync(s.capture_image_path))
+          .map(s => `  - scene "${s.scene}": ${s.capture_image_path}`);
+        if (missing.length > 0) {
+          throw new Error(
+            `다음 capture_image_path 파일을 찾을 수 없습니다:\n${missing.join("\n")}\n\n` +
+            `시뮬레이터·실기기에서 게임을 실행하고 직접 캡쳐한 PNG를 넘겨주세요.`
+          );
+        }
+
         const generatedFiles: Array<{ scene: string; platform: string; file_path: string }> = [];
 
         for (const screenshot of params.screenshots) {
-          let baseImageBuffer: Buffer;
-
-          let screenshotCost: { latency_ms: number; est_cost_usd: number; cost_formula?: string; model?: string } | null = null;
-          if (screenshot.background_image_path && fs.existsSync(screenshot.background_image_path)) {
-            // Use existing image: resize to largest needed dimension then blur overlay
-            const maxWidth = Math.max(...platforms.map((p) => p.width));
-            const maxHeight = Math.max(...platforms.map((p) => p.height));
-            baseImageBuffer = await sharp(screenshot.background_image_path)
-              .resize(maxWidth, maxHeight, { fit: "cover" })
-              .toBuffer();
-          } else {
-            // Generate with gpt-image-1
-            const prompt = `${params.style_description || "vibrant colorful game"} screenshot scene: ${screenshot.scene}, ${params.game_name} mobile game, high quality game artwork`;
-            const shotLatency = startLatencyTracker();
-            const result = await generateImageOpenAI({
-              prompt,
-              size: "1024x1536",
-              quality: "high",
-              background: "opaque",
-            });
-            screenshotCost = buildCostTelemetry("gpt-image-1-mini", "high", "1024x1536", shotLatency.elapsed());
-            baseImageBuffer = Buffer.from(result.base64, "base64");
-          }
-
           for (const plat of platforms) {
-            // Resize to platform dimensions
-            const resized = await sharp(baseImageBuffer)
+            // 1. 캡쳐를 플랫폼 비율로 cover fit
+            const resized = await sharp(screenshot.capture_image_path)
               .resize(plat.width, plat.height, { fit: "cover" })
               .toBuffer();
 
-            // Build caption SVG
+            // 2. 캡션 SVG 합성
             const captionSvg = makeCaptionSvg(
               screenshot.caption,
               plat.width,
               screenshot.caption_position ?? "top",
-              Math.round(plat.width * 0.04) // ~4% of width
+              Math.round(plat.width * 0.04),
             );
             const captionHeight = Math.round(plat.width * 0.04) + 70;
             const captionTop =
@@ -166,15 +152,8 @@ Args:
                 ? 0
                 : plat.height - captionHeight;
 
-            // Composite caption overlay
             const final = await sharp(resized)
-              .composite([
-                {
-                  input: captionSvg,
-                  top: captionTop,
-                  left: 0,
-                },
-              ])
+              .composite([{ input: captionSvg, top: captionTop, left: 0 }])
               .png()
               .toBuffer();
 
@@ -187,7 +166,7 @@ Args:
               id: generateAssetId(),
               type: "image",
               asset_type: "store_screenshot",
-              provider: screenshot.background_image_path ? "sharp" : "openai",
+              provider: "sharp",
               prompt: screenshot.caption,
               file_path: filePath,
               file_name: fileName,
@@ -199,7 +178,7 @@ Args:
                 width: plat.width,
                 height: plat.height,
                 game_name: params.game_name,
-                ...(screenshotCost ?? {}),
+                source_capture: screenshot.capture_image_path,
               },
             };
             saveAssetToRegistry(asset, outputDir);
@@ -214,6 +193,7 @@ Args:
           total_files: generatedFiles.length,
           files: generatedFiles,
           output_dir: screenshotsDir,
+          ai_calls: 0,
         };
 
         return {
@@ -378,36 +358,46 @@ Args:
   server.registerTool(
     "asset_generate_social_media_pack",
     {
-      title: "Generate Social Media Image Pack",
-      description: `Generate a set of promotional images sized for major social media platforms.
+      title: "Generate Social Media Image Pack (v2 — atmosphere plate + composite)",
+      description: `⚠️  사용자가 명시적으로 SNS 홍보 이미지를 요청할 때만 호출하세요.
+   기본 마케팅 워크플로(스토어 배너·썸네일·로고)에는 포함되지 않습니다.
 
-Output files:
-  - instagram_post.png    (1080×1080 px)
-  - instagram_story.png   (1080×1920 px)
-  - twitter_banner.png    (1200×675 px)
-  - facebook_post.png     (1200×630 px)
+마케팅 캠페인용 SNS 4비율 이미지를 한 번에 생성합니다.
 
-Processing:
-  1. Generate a 1024×1024 base image with gpt-image-1
-  2. Resize to each platform's required dimensions
-  3. If key_visual_path is provided, composite it into each image
+Output files (모두 marketing/social/ 하위):
+  - instagram_post.png    1080×1080
+  - instagram_story.png   1080×1920
+  - twitter_banner.png    1200×675
+  - facebook_post.png     1200×630
+
+Pipeline (AI 호출 1회):
+  1. gpt-image-2로 1024×1024 "atmosphere plate" 생성 (캐릭터 자리 비움)
+  2. 각 플랫폼 비율로 sharp mirror+blur extend (정보 손실 없는 비율 확장)
+  3. key_visual 합성 — drop shadow + 플랫폼별 anchor (post=중앙, story=상단,
+                                                       banner류=좌측 1/3)
+  4. logo_path 합성 — 코너 safe-zone (옵션)
+  5. vignette — 가장자리 어둡게, 캐릭터 도드라짐
 
 Args:
-  - game_name: Name of the game
-  - event_type: Type of promotional event
-  - key_visual_path: Optional path to a key image for compositing
-  - caption: Optional caption/tagline text
-  - style_description: Optional visual style for AI generation
-  - output_dir: Output directory`,
+  - game_name: 게임명 (plate 프롬프트에 삽입)
+  - event_type: 캠페인 타입 (launch / update / event / ranking)
+  - key_visual_path: 캐릭터·키비주얼 PNG 경로 (옵션, 권장)
+  - logo_path: 코너 합성용 로고 PNG 경로 (옵션)
+  - style_description: AI plate 스타일 키워드 (옵션)
+  - vignette: 가장자리 비네팅 적용 여부 (기본 true)
+  - output_dir: 출력 디렉토리 (기본 .minigame-assets/marketing/social/)`,
       inputSchema: z.object({
         game_name: z.string().min(1).describe("Game name"),
         event_type: z.enum(["launch", "update", "event", "ranking"])
           .describe("Type of promotional event"),
         key_visual_path: z.string().optional()
-          .describe("Path to a key image for compositing"),
-        caption: z.string().optional().describe("Caption or tagline text"),
+          .describe("캐릭터/키비주얼 PNG 경로 (있으면 drop shadow + 플랫폼별 anchor 합성)"),
+        logo_path: z.string().optional()
+          .describe("로고 PNG 경로 (있으면 코너 safe-zone 합성)"),
         style_description: z.string().optional()
-          .describe("Visual style description for AI generation"),
+          .describe("plate 비주얼 스타일 키워드"),
+        vignette: z.boolean().default(true)
+          .describe("가장자리 비네팅 적용 여부 (기본 true — 캐릭터를 도드라지게)"),
         output_dir: z.string().optional().describe("출력 디렉토리. 기본은 본 도구의 표준 sub-dir(`.minigame-assets/marketing/<asset_type>/`)을 자동 결정합니다. registry/deploy-map은 어떤 sub-dir을 지정하더라도 항상 프로젝트 루트(`.minigame-assets/`) 한 곳에 통합 저장됩니다."),
       }).strict(),
       annotations: {
@@ -423,55 +413,99 @@ Args:
         const socialDir = path.resolve(outputDir, "marketing", "social");
         ensureDir(socialDir);
 
+        // ── Step 1: AI plate 1회 생성 ───────────────────────────────────────
         const eventDescriptions: Record<string, string> = {
-          launch: "game launch announcement, exciting new release",
-          update: "game update announcement, new content reveal",
-          event: "in-game special event promotion",
-          ranking: "leaderboard and ranking showcase",
+          launch: "game launch announcement atmosphere",
+          update: "game update reveal atmosphere",
+          event: "in-game special event atmosphere",
+          ranking: "leaderboard / ranking showcase atmosphere",
         };
+        const platePrompt =
+          `${params.style_description || "vibrant cinematic game art"} ` +
+          `marketing atmosphere plate for ${params.game_name} mobile game, ` +
+          `${eventDescriptions[params.event_type]}, ` +
+          `painterly background with depth and lighting, ` +
+          `composition with breathing room in the center for a character to be composited later, ` +
+          `NO characters, NO mascots, NO logos, NO text, NO UI elements, ` +
+          `high quality, opaque background`;
 
-        const prompt = `${params.style_description || "vibrant colorful game art"} ${eventDescriptions[params.event_type]} for ${params.game_name} mobile game, eye-catching promotional artwork${params.caption ? `, tagline: ${params.caption}` : ""}, high quality`;
-
-        const socialLatency = startLatencyTracker();
-        const result = await generateImageOpenAI({
-          prompt,
+        const plateLatency = startLatencyTracker();
+        const plateResult = await generateImageOpenAI({
+          prompt: platePrompt,
+          model: "gpt-image-2",
           size: "1024x1024",
           quality: "high",
           background: "opaque",
         });
-        const socialCost = buildCostTelemetry("gpt-image-1-mini", "high", "1024x1024", socialLatency.elapsed());
+        const plateCost = buildCostTelemetry("gpt-image-2", "high", "1024x1024", plateLatency.elapsed());
+        const plateBuffer = Buffer.from(plateResult.base64, "base64");
 
-        const baseBuffer = Buffer.from(result.base64, "base64");
-
-        const platformSpecs = [
-          { id: "instagram_post",  fileName: "instagram_post.png",  width: 1080, height: 1080 },
-          { id: "instagram_story", fileName: "instagram_story.png", width: 1080, height: 1920 },
-          { id: "twitter_banner",  fileName: "twitter_banner.png",  width: 1200, height: 675  },
-          { id: "facebook_post",   fileName: "facebook_post.png",   width: 1200, height: 630  },
+        // ── 플랫폼 스펙 + anchor 정의 ───────────────────────────────────────
+        type PlatformSpec = {
+          id: string;
+          fileName: string;
+          width: number;
+          height: number;
+          /** key_visual 가로 anchor: 'center' | 'left-third' */
+          kvAnchorX: "center" | "left-third";
+          /** key_visual 세로 비율 (캔버스 높이 대비) */
+          kvHeightRatio: number;
+          /** logo 코너 위치 */
+          logoCorner: "tl" | "tr" | "bl" | "br";
+        };
+        const platformSpecs: PlatformSpec[] = [
+          { id: "instagram_post",  fileName: "instagram_post.png",  width: 1080, height: 1080, kvAnchorX: "center",     kvHeightRatio: 0.75, logoCorner: "br" },
+          { id: "instagram_story", fileName: "instagram_story.png", width: 1080, height: 1920, kvAnchorX: "center",     kvHeightRatio: 0.62, logoCorner: "br" },
+          { id: "twitter_banner",  fileName: "twitter_banner.png",  width: 1200, height: 675,  kvAnchorX: "left-third", kvHeightRatio: 0.85, logoCorner: "tl" },
+          { id: "facebook_post",   fileName: "facebook_post.png",   width: 1200, height: 630,  kvAnchorX: "left-third", kvHeightRatio: 0.85, logoCorner: "tl" },
         ];
+
+        // key_visual 사전 로드 (재사용)
+        let kvBaseBuffer: Buffer | null = null;
+        if (params.key_visual_path && fs.existsSync(params.key_visual_path)) {
+          kvBaseBuffer = fs.readFileSync(params.key_visual_path);
+        }
+        // logo 사전 로드
+        let logoBaseBuffer: Buffer | null = null;
+        if (params.logo_path && fs.existsSync(params.logo_path)) {
+          logoBaseBuffer = fs.readFileSync(params.logo_path);
+        }
 
         const generatedFiles: Array<{ platform: string; file_path: string; width: number; height: number }> = [];
 
         for (const spec of platformSpecs) {
-          let platformBuffer = await sharp(baseBuffer)
-            .resize(spec.width, spec.height, { fit: "cover" })
-            .toBuffer();
+          // ── Step 2: 정사각 plate를 플랫폼 비율로 mirror+blur extend ─────
+          let canvasBuffer = await extendPlateToAspect(plateBuffer, spec.width, spec.height);
 
-          if (params.key_visual_path && fs.existsSync(params.key_visual_path)) {
-            const kvMaxH = Math.round(spec.height * 0.75);
-            const kvResized = await sharp(params.key_visual_path)
-              .resize(null, kvMaxH, { fit: "inside" })
-              .toBuffer();
-            const kvMeta = await sharp(kvResized).metadata();
-            const kvLeft = Math.round((spec.width - (kvMeta.width ?? 0)) / 2);
-            const kvTop = Math.round((spec.height - (kvMeta.height ?? 0)) / 2);
-
-            platformBuffer = await sharp(platformBuffer)
-              .composite([{ input: kvResized, left: Math.max(0, kvLeft), top: Math.max(0, kvTop) }])
-              .toBuffer();
+          // ── Step 3: key_visual 합성 (drop shadow + anchor) ───────────────
+          if (kvBaseBuffer) {
+            canvasBuffer = await compositeKeyVisualWithShadow(
+              canvasBuffer,
+              kvBaseBuffer,
+              spec.width,
+              spec.height,
+              spec.kvAnchorX,
+              spec.kvHeightRatio,
+            );
           }
 
-          const finalBuffer = await sharp(platformBuffer).png().toBuffer();
+          // ── Step 4: logo 합성 (코너 safe-zone) ────────────────────────────
+          if (logoBaseBuffer) {
+            canvasBuffer = await compositeLogoCorner(
+              canvasBuffer,
+              logoBaseBuffer,
+              spec.width,
+              spec.height,
+              spec.logoCorner,
+            );
+          }
+
+          // ── Step 5: vignette ─────────────────────────────────────────────
+          if (params.vignette !== false) {
+            canvasBuffer = await applyVignette(canvasBuffer, spec.width, spec.height);
+          }
+
+          const finalBuffer = await sharp(canvasBuffer).png().toBuffer();
           const pathBase = path.join(socialDir, spec.fileName);
           const written = await writeOptimized(finalBuffer, pathBase);
           const filePath = written.path;
@@ -482,7 +516,7 @@ Args:
             type: "image",
             asset_type: "social_media",
             provider: "openai",
-            prompt,
+            prompt: platePrompt,
             file_path: filePath,
             file_name: fileName,
             mime_type: written.format === "webp" ? "image/webp" : "image/png",
@@ -493,7 +527,10 @@ Args:
               width: spec.width,
               height: spec.height,
               game_name: params.game_name,
-              ...socialCost,
+              has_key_visual: !!kvBaseBuffer,
+              has_logo: !!logoBaseBuffer,
+              vignette: params.vignette !== false,
+              ...plateCost,
             },
           };
           saveAssetToRegistry(asset, outputDir);
@@ -507,6 +544,8 @@ Args:
           total_files: generatedFiles.length,
           files: generatedFiles,
           output_dir: socialDir,
+          ai_calls: 1,
+          plate_cost_usd: plateCost.est_cost_usd,
         };
 
         return {
@@ -521,4 +560,232 @@ Args:
       }
     }
   );
+}
+
+// ─── social_media_pack v2 helpers ────────────────────────────────────────────
+// 외부 (smoke test 등)에서 단위로 검증할 수 있도록 모두 export.
+
+/**
+ * 정사각 plate를 타깃 비율로 확장.
+ * - 가로가 더 넓으면 plate를 세로 fit 후 좌·우를 plate 가장자리 mirror+blur로 채움
+ * - 세로가 더 길면 plate를 가로 fit 후 상·하를 mirror+blur로 채움
+ * - 정사각이면 단순 리사이즈
+ */
+export async function extendPlateToAspect(
+  plate: Buffer,
+  targetW: number,
+  targetH: number,
+): Promise<Buffer> {
+  const targetAspect = targetW / targetH;
+  if (Math.abs(targetAspect - 1) < 0.01) {
+    return await sharp(plate).resize(targetW, targetH, { fit: "cover" }).toBuffer();
+  }
+
+  if (targetAspect > 1) {
+    // 가로가 더 넓음: plate를 세로 height에 맞추고, 좌·우 확장
+    const coreHeight = targetH;
+    const coreWidth = coreHeight; // 정사각 plate라서 width === height
+    const corePlate = await sharp(plate).resize(coreWidth, coreHeight, { fit: "cover" }).toBuffer();
+
+    const sideWidth = Math.ceil((targetW - coreWidth) / 2);
+    if (sideWidth <= 0) {
+      return await sharp(corePlate).resize(targetW, targetH, { fit: "cover" }).toBuffer();
+    }
+
+    // 좌측 strip: plate 왼쪽 일부를 mirror + blur
+    const leftStripSrc = await sharp(corePlate)
+      .extract({ left: 0, top: 0, width: Math.min(sideWidth, coreWidth), height: coreHeight })
+      .flop() // 좌우 미러
+      .resize(sideWidth, coreHeight, { fit: "cover" })
+      .blur(40)
+      .toBuffer();
+
+    const rightStripSrc = await sharp(corePlate)
+      .extract({ left: coreWidth - Math.min(sideWidth, coreWidth), top: 0, width: Math.min(sideWidth, coreWidth), height: coreHeight })
+      .flop()
+      .resize(sideWidth, coreHeight, { fit: "cover" })
+      .blur(40)
+      .toBuffer();
+
+    const canvas = await sharp({
+      create: { width: targetW, height: targetH, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    })
+      .composite([
+        { input: leftStripSrc, left: 0, top: 0 },
+        { input: corePlate, left: sideWidth, top: 0 },
+        { input: rightStripSrc, left: sideWidth + coreWidth, top: 0 },
+      ])
+      .png()
+      .toBuffer();
+
+    return await sharp(canvas).resize(targetW, targetH, { fit: "cover" }).toBuffer();
+  }
+
+  // 세로가 더 길음: plate를 가로 width에 맞추고, 상·하 확장
+  const coreWidth = targetW;
+  const coreHeight = coreWidth;
+  const corePlate = await sharp(plate).resize(coreWidth, coreHeight, { fit: "cover" }).toBuffer();
+
+  const stripHeight = Math.ceil((targetH - coreHeight) / 2);
+  if (stripHeight <= 0) {
+    return await sharp(corePlate).resize(targetW, targetH, { fit: "cover" }).toBuffer();
+  }
+
+  const topStripSrc = await sharp(corePlate)
+    .extract({ left: 0, top: 0, width: coreWidth, height: Math.min(stripHeight, coreHeight) })
+    .flip() // 상하 미러
+    .resize(coreWidth, stripHeight, { fit: "cover" })
+    .blur(40)
+    .toBuffer();
+
+  const bottomStripSrc = await sharp(corePlate)
+    .extract({ left: 0, top: coreHeight - Math.min(stripHeight, coreHeight), width: coreWidth, height: Math.min(stripHeight, coreHeight) })
+    .flip()
+    .resize(coreWidth, stripHeight, { fit: "cover" })
+    .blur(40)
+    .toBuffer();
+
+  const canvas = await sharp({
+    create: { width: targetW, height: targetH, channels: 3, background: { r: 0, g: 0, b: 0 } },
+  })
+    .composite([
+      { input: topStripSrc, left: 0, top: 0 },
+      { input: corePlate, left: 0, top: stripHeight },
+      { input: bottomStripSrc, left: 0, top: stripHeight + coreHeight },
+    ])
+    .png()
+    .toBuffer();
+
+  return await sharp(canvas).resize(targetW, targetH, { fit: "cover" }).toBuffer();
+}
+
+/**
+ * key_visual을 drop shadow와 함께 캔버스에 합성.
+ * anchor에 따라 가로 위치 결정, 세로는 항상 캔버스 하단에 base가 닿도록 (서있는 캐릭터 가정).
+ */
+export async function compositeKeyVisualWithShadow(
+  canvas: Buffer,
+  kv: Buffer,
+  canvasW: number,
+  canvasH: number,
+  anchorX: "center" | "left-third",
+  heightRatio: number,
+): Promise<Buffer> {
+  const targetH = Math.round(canvasH * heightRatio);
+  const kvResized = await sharp(kv)
+    .resize(null, targetH, { fit: "inside" })
+    .toBuffer();
+  const kvMeta = await sharp(kvResized).metadata();
+  const kvW = kvMeta.width ?? 0;
+  const kvH = kvMeta.height ?? targetH;
+
+  // 가로 위치
+  let kvLeft: number;
+  if (anchorX === "left-third") {
+    kvLeft = Math.round(canvasW * 0.33 - kvW / 2);
+  } else {
+    kvLeft = Math.round((canvasW - kvW) / 2);
+  }
+  // 캔버스 폭을 넘지 않도록 clamp
+  kvLeft = Math.max(0, Math.min(canvasW - kvW, kvLeft));
+
+  // 세로: 캐릭터 발이 캔버스 하단에서 5% 위에 오도록
+  const bottomMargin = Math.round(canvasH * 0.05);
+  let kvTop = canvasH - kvH - bottomMargin;
+  if (kvTop < 0) kvTop = 0;
+
+  // drop shadow: kv의 알파를 추출 → 검정 RGB + 해당 알파로 RGBA 재조립 → blur
+  const shadowOffsetX = Math.round(kvW * 0.02);
+  const shadowOffsetY = Math.round(kvH * 0.025);
+  const shadowBlur = Math.max(8, Math.round(kvH * 0.02));
+
+  const alphaRaw = await sharp(kvResized).ensureAlpha().extractChannel("alpha").raw().toBuffer();
+  const shadowRaw = Buffer.alloc(kvW * kvH * 4);
+  for (let i = 0; i < kvW * kvH; i++) {
+    // R=G=B=0 (검정), A=원본 알파 * 0.7 (그림자 반투명)
+    shadowRaw[i * 4 + 3] = Math.round(alphaRaw[i] * 0.7);
+  }
+  const shadow = await sharp(shadowRaw, {
+    raw: { width: kvW, height: kvH, channels: 4 },
+  })
+    .blur(shadowBlur)
+    .png()
+    .toBuffer();
+
+  return await sharp(canvas)
+    .composite([
+      { input: shadow, left: kvLeft + shadowOffsetX, top: kvTop + shadowOffsetY },
+      { input: kvResized, left: kvLeft, top: kvTop },
+    ])
+    .png()
+    .toBuffer();
+}
+
+/**
+ * 로고를 코너 safe-zone에 합성.
+ * - 로고는 캔버스 짧은 변의 18%를 최대 변으로 리사이즈
+ * - safe-zone 마진은 캔버스 짧은 변의 5%
+ */
+export async function compositeLogoCorner(
+  canvas: Buffer,
+  logo: Buffer,
+  canvasW: number,
+  canvasH: number,
+  corner: "tl" | "tr" | "bl" | "br",
+): Promise<Buffer> {
+  const minSide = Math.min(canvasW, canvasH);
+  const logoMaxSide = Math.round(minSide * 0.18);
+  const margin = Math.round(minSide * 0.05);
+
+  const logoResized = await sharp(logo)
+    .resize(logoMaxSide, logoMaxSide, { fit: "inside" })
+    .toBuffer();
+  const meta = await sharp(logoResized).metadata();
+  const lw = meta.width ?? logoMaxSide;
+  const lh = meta.height ?? logoMaxSide;
+
+  let left: number;
+  let top: number;
+  switch (corner) {
+    case "tl": left = margin;                  top = margin;                  break;
+    case "tr": left = canvasW - lw - margin;   top = margin;                  break;
+    case "bl": left = margin;                  top = canvasH - lh - margin;   break;
+    case "br": left = canvasW - lw - margin;   top = canvasH - lh - margin;   break;
+  }
+
+  return await sharp(canvas)
+    .composite([{ input: logoResized, left, top }])
+    .png()
+    .toBuffer();
+}
+
+/**
+ * 가장자리 비네팅 (가운데는 그대로, 가장자리는 어둡게).
+ * 검정 PNG에 중앙 라디얼 알파 그라데이션 SVG 마스크를 합성한 후
+ * 원본 위에 multiply 가까운 효과를 내기 위해 over 합성한다.
+ */
+export async function applyVignette(
+  canvas: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const cx = width / 2;
+  const cy = height / 2;
+  const rOuter = Math.round(Math.max(width, height) * 0.7);
+  const rInner = Math.round(Math.min(width, height) * 0.45);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+    <defs>
+      <radialGradient id="g" cx="50%" cy="50%" r="${(rOuter / Math.max(width, height)) * 100}%" fx="50%" fy="50%">
+        <stop offset="${(rInner / rOuter) * 100}%" stop-color="black" stop-opacity="0"/>
+        <stop offset="100%" stop-color="black" stop-opacity="0.55"/>
+      </radialGradient>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#g)"/>
+  </svg>`;
+
+  return await sharp(canvas)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .png()
+    .toBuffer();
 }

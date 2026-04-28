@@ -330,36 +330,10 @@ export async function analyzeImageOpenAI(
 }
 
 // ─── 비디오 생성 ─────────────────────────────────────────────────────────────
+//
+// 이전 버전에 OpenAI Sora 영상 생성이 있었으나 (1) Sora API가
+// 2026-09-24에 종료 예정이고 (2) 본 프로젝트에서 영상 자산 워크플로를
+// 운영하지 않기로 결정해 도구 + 서비스를 v3.2.0에서 제거했습니다.
+// 향후 영상 기능이 필요해지면 다른 provider (Runway / Veo / Kling 등)로
+// 새로 통합해야 합니다.
 
-export interface OpenAIVideoParams {
-  prompt: string;
-  model?: "sora-1.0-turbo";
-  duration?: 5 | 10 | 15 | 20;
-  resolution?: "480p" | "720p" | "1080p";
-  aspect_ratio?: "16:9" | "9:16" | "1:1";
-}
-
-export async function generateVideoOpenAI(
-  params: OpenAIVideoParams
-): Promise<{ videoUrl: string }> {
-  const response = await axios.post<{ id: string; status: string; url?: string }>(
-    `${OPENAI_API_URL}/video/generations`,
-    {
-      model: params.model || "sora-1.0-turbo",
-      prompt: params.prompt,
-      duration: params.duration || 5,
-      resolution: params.resolution || "720p",
-      aspect_ratio: params.aspect_ratio || "16:9",
-    },
-    {
-      headers: getHeaders(),
-      timeout: 300000,
-    }
-  );
-
-  if (!response.data.url) {
-    throw new Error("OpenAI video generation did not return a URL. The video may still be processing.");
-  }
-
-  return { videoUrl: response.data.url };
-}
