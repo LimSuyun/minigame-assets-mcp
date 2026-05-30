@@ -331,3 +331,79 @@ export function exportUnityJson(
   fs.writeFileSync(outputPath, JSON.stringify(unityData, null, 2));
   return outputPath;
 }
+
+// ─── Godot 4 SpriteFrames .tres ───────────────────────────────────────────────
+
+const GODOT_FPS_BY_ACTION: Record<string, number> = {
+  idle: 5, walk: 8, run: 10, jump: 8, attack: 12, hurt: 8, die: 6,
+};
+
+/**
+ * Godot 4 SpriteFrames 리소스 파일(.tres) 내보내기.
+ * AnimatedSprite2D.sprite_frames 에 직접 할당 가능.
+ *
+ * 사용 방법:
+ *   1. 시트 이미지(.webp/.png)와 .tres 파일을 Godot 프로젝트 폴더에 복사
+ *   2. .tres 내 path="res://파일명" 을 실제 위치로 수정
+ *   3. AnimatedSprite2D 노드 → Frames 속성에 .tres 파일 지정
+ */
+export function exportGodotTres(
+  sheet: ComposedSheet,
+  characterName: string,
+  outputPath: string,
+): string {
+  const sheetFileName = path.basename(sheet.sheetPath);
+
+  // 액션별 프레임 그룹화 (입력 순서 유지)
+  const actionMap = new Map<string, Array<typeof sheet.frames[number]>>();
+  for (const f of sheet.frames) {
+    if (!actionMap.has(f.action)) actionMap.set(f.action, []);
+    actionMap.get(f.action)!.push(f);
+  }
+
+  const totalFrames = sheet.frames.length;
+  // load_steps: ext_resource(1) + AtlasTexture sub_resource(N) + resource 자체(1)
+  const loadSteps = totalFrames + 2;
+
+  const lines: string[] = [];
+
+  // ── 헤더 ──
+  lines.push(`[gd_resource type="SpriteFrames" load_steps=${loadSteps} format=3]`);
+  lines.push(``);
+
+  // ── 시트 텍스처 (경로는 프로젝트에 맞게 수정 필요) ──
+  lines.push(`[ext_resource type="Texture2D" path="res://${sheetFileName}" id="1_sheet"]`);
+  lines.push(``);
+
+  // ── 프레임별 AtlasTexture sub_resource ──
+  for (const f of sheet.frames) {
+    const subId = `AtlasTexture_${f.action}_${f.frameIndex}`;
+    lines.push(`[sub_resource type="AtlasTexture" id="${subId}"]`);
+    lines.push(`atlas = ExtResource("1_sheet")`);
+    lines.push(`region = Rect2(${f.x}, ${f.y}, ${f.w}, ${f.h})`);
+    lines.push(``);
+  }
+
+  // ── 애니메이션 배열 ──
+  lines.push(`[resource]`);
+
+  const animEntries: string[] = [];
+  for (const [action, frames] of actionMap) {
+    const fps = GODOT_FPS_BY_ACTION[action] ?? 8;
+    const loop = action !== "die"; // die는 반복 없음
+
+    const sortedFrames = [...frames].sort((a, b) => a.frameIndex - b.frameIndex);
+    const frameEntries = sortedFrames
+      .map((f) => `{\n"duration": 1.0,\n"texture": SubResource("AtlasTexture_${f.action}_${f.frameIndex}")\n}`)
+      .join(", ");
+
+    animEntries.push(
+      `{\n"frames": [${frameEntries}],\n"loop": ${loop},\n"name": &"${action}",\n"speed": ${fps}.0\n}`,
+    );
+  }
+
+  lines.push(`animations = [${animEntries.join(", ")}]`);
+
+  fs.writeFileSync(outputPath, lines.join("\n"));
+  return outputPath;
+}

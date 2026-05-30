@@ -2,52 +2,31 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, ASSET_TYPES, NO_PADDING_TYPES } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, ASSET_TYPES, NO_PADDING_TYPES, CLEAN_LINE_STYLE_DEFAULT } from "../constants.js";
 import { generateImageOpenAI, generateImageWithResponses } from "../services/openai.js";
-import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { safeRefinePrompt, type PromptTargetModel, type PromptAssetType } from "../services/gpt5-prompt.js";
 import { OPENAI_IMAGE_MODELS } from "../constants.js";
 import {
   buildAssetPath,
   generateFileName,
-  saveBase64File,
   saveAssetToRegistry,
   generateAssetId,
 } from "../utils/files.js";
-import { addPadding } from "../utils/image-process.js";
+import { addPaddingToBuffer } from "../utils/image-process.js";
+import { writeOptimized } from "../utils/image-output.js";
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
-import type { GameConcept, GeneratedAsset } from "../types.js";
-
-function loadConceptForPrompt(conceptFile: string): string {
-  const resolved = path.resolve(conceptFile);
-  if (!fs.existsSync(resolved)) return "";
-  const concept = JSON.parse(fs.readFileSync(resolved, "utf-8")) as GameConcept;
-  return (
-    `Game: ${concept.game_name}. Style: ${concept.art_style}. ` +
-    `Theme: ${concept.theme}. Colors: ${concept.color_palette.join(", ")}.`
-  );
-}
-
-/**
- * CONCEPT.md의 "BASE STYLE PROMPT" 코드블록 내용을 추출합니다.
- * generate_assets.py의 BASE_STYLE / WEAPON_STYLE 방식과 동일하게 프롬프트 앞에 주입됩니다.
- */
-function loadBaseStyleFromConceptMd(conceptMdPath: string): string {
-  const resolved = path.resolve(conceptMdPath);
-  if (!fs.existsSync(resolved)) return "";
-
-  const content = fs.readFileSync(resolved, "utf-8");
-
-  // "## BASE STYLE PROMPT" 섹션의 첫 번째 코드블록(``` ```) 내용을 추출
-  const sectionMatch = content.match(/##\s+BASE STYLE PROMPT[^\n]*\n[\s\S]*?```([^`]*)```/);
-  if (!sectionMatch) return "";
-
-  return sectionMatch[1].trim().replace(/\n/g, " ");
-}
+import { loadConceptHint, loadBaseStyleFromConceptMd, hasSoftStyle } from "../utils/concept-loader.js";
+import type { GeneratedAsset } from "../types.js";
 
 function buildEnrichedPrompt(prompt: string, assetType: string, conceptHint: string): string {
-  if (!conceptHint) return prompt;
-  return `${prompt}. Asset type: ${assetType}. ${conceptHint}`;
+  // 컨셉에 soft/watercolor 등 부드러운 스타일이 없으면 선명한 선 스타일을 기본 주입.
+  const cleanStyle = hasSoftStyle(conceptHint) ? "" : CLEAN_LINE_STYLE_DEFAULT;
+  const parts: string[] = [prompt];
+  if (cleanStyle) parts.push(cleanStyle);
+  if (assetType) parts.push(`Asset type: ${assetType}`);
+  if (conceptHint) parts.push(conceptHint);
+  return parts.join(". ");
 }
 
 /**
@@ -113,26 +92,17 @@ Returns:
       try {
         const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
         const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
-        const conceptHint = params.use_concept ? loadConceptForPrompt(conceptFile) : "";
+        const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
 
         // GPT-5 프롬프트 리파인 (opt-in)
-        let userPrompt = params.prompt;
-        let refinedByGPT5 = false;
-        if (params.refine_prompt) {
-          try {
-            userPrompt = await refineImagePrompt({
-              userDescription: params.prompt,
-              targetModel: params.model as
-                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
-              assetType: params.asset_type as
-                | "character" | "background" | "thumbnail" | "sprite" | "weapon" | "icon" | "logo" | "other",
-              conceptHint,
-            });
-            refinedByGPT5 = true;
-          } catch (refineErr) {
-            console.warn(`[refine_prompt] image_openai refinement failed, using original: ${refineErr instanceof Error ? refineErr.message : refineErr}`);
-          }
-        }
+        const { text: userPrompt, refined: refinedByGPT5 } = await safeRefinePrompt({
+          enabled: params.refine_prompt,
+          text: params.prompt,
+          targetModel: params.model as PromptTargetModel,
+          assetType: params.asset_type as PromptAssetType,
+          conceptHint,
+          toolName: "image_openai",
+        });
 
         const enrichedPrompt = buildEnrichedPrompt(userPrompt, params.asset_type, conceptHint);
 
@@ -145,14 +115,12 @@ Returns:
           background: params.background,
         });
 
-        const fileName = generateFileName(`${params.asset_type}_openai`, "png");
-        const filePath = buildAssetPath(outputDir, "images", fileName);
-        saveBase64File(result.base64, filePath);
-
-        // 캐릭터/스프라이트/무기 등 투명 배경 에셋은 여백 추가로 잘림 방지
+        let buffer = Buffer.from(result.base64, "base64") as Buffer;
         if (!NO_PADDING_TYPES.includes(params.asset_type)) {
-          await addPadding(filePath, filePath, 5);
+          buffer = await addPaddingToBuffer(buffer, 51);
         }
+        const targetPath = buildAssetPath(outputDir, "images", generateFileName(`${params.asset_type}_openai`, "png"));
+        const written = await writeOptimized(buffer, targetPath);
 
         const asset: GeneratedAsset = {
           id: generateAssetId(),
@@ -160,9 +128,9 @@ Returns:
           asset_type: params.asset_type,
           provider: "openai",
           prompt: params.prompt,
-          file_path: filePath,
-          file_name: fileName,
-          mime_type: "image/png",
+          file_path: written.path,
+          file_name: path.basename(written.path),
+          mime_type: written.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             revised_prompt: result.revisedPrompt,
@@ -182,7 +150,7 @@ Returns:
               type: "text" as const,
               text: JSON.stringify({
                 success: true,
-                file_path: filePath,
+                file_path: written.path,
                 asset_id: asset.id,
                 revised_prompt: result.revisedPrompt,
                 asset_type: params.asset_type,
@@ -250,108 +218,111 @@ Returns:
       },
     },
     async (params) => {
-      const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
-      const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
-      const conceptHint = params.use_concept ? loadConceptForPrompt(conceptFile) : "";
+      try {
+        const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+        const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
+        const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
 
-      // CONCEPT.md BASE STYLE PROMPT 로드 (generate_assets.py의 BASE_STYLE 방식)
-      const baseStyle = params.concept_md ? loadBaseStyleFromConceptMd(params.concept_md) : "";
+        // CONCEPT.md BASE STYLE PROMPT 로드 (generate_assets.py의 BASE_STYLE 방식)
+        const baseStyle = params.concept_md ? loadBaseStyleFromConceptMd(params.concept_md) : "";
 
-      const results: Array<{
-        index: number;
-        prompt: string;
-        asset_type: string;
-        provider: string;
-        model: string;
-        success: boolean;
-        file_path?: string;
-        asset_id?: string;
-        error?: string;
-      }> = [];
+        const results: Array<{
+          index: number;
+          prompt: string;
+          asset_type: string;
+          provider: string;
+          model: string;
+          success: boolean;
+          file_path?: string;
+          asset_id?: string;
+          error?: string;
+        }> = [];
 
-      for (let i = 0; i < params.specs.length; i++) {
-        const spec = params.specs[i];
-        const styledPrompt = buildStyledPrompt(spec.prompt, baseStyle);
-        const finalPrompt = buildEnrichedPrompt(styledPrompt, spec.asset_type, conceptHint);
-        const model = spec.model ?? "gpt-image-1-mini";
+        for (let i = 0; i < params.specs.length; i++) {
+          const spec = params.specs[i];
+          const styledPrompt = buildStyledPrompt(spec.prompt, baseStyle);
+          const finalPrompt = buildEnrichedPrompt(styledPrompt, spec.asset_type, conceptHint);
+          const model = spec.model ?? "gpt-image-1-mini";
 
-        try {
-          const latency = startLatencyTracker();
-          const r = await generateImageOpenAI({
-            prompt: finalPrompt,
-            model: spec.model,
-            size: spec.size,
-            quality: spec.quality ?? "medium",
-            background: "transparent",
-          });
-          const base64 = r.base64;
-          const mimeType = r.mimeType;
-          const usedModel: string = model;
-          const latencyMs = latency.elapsed();
+          try {
+            const latency = startLatencyTracker();
+            const r = await generateImageOpenAI({
+              prompt: finalPrompt,
+              model: spec.model,
+              size: spec.size,
+              quality: spec.quality ?? "medium",
+              background: "transparent",
+            });
+            const usedModel: string = model;
+            const latencyMs = latency.elapsed();
 
-          const ext = mimeType.includes("jpeg") ? "jpg" : "png";
-          const fileName = generateFileName(`${spec.asset_type}_openai`, ext);
-          const filePath = buildAssetPath(outputDir, "images", fileName);
-          saveBase64File(base64, filePath);
+            let buf = Buffer.from(r.base64, "base64") as Buffer;
+            if (!NO_PADDING_TYPES.includes(spec.asset_type)) {
+              buf = await addPaddingToBuffer(buf, 51);
+            }
+            const targetPath = buildAssetPath(outputDir, "images", generateFileName(`${spec.asset_type}_openai`, "png"));
+            const batchWritten = await writeOptimized(buf, targetPath);
 
-          // 캐릭터/스프라이트/무기 등 투명 배경 에셋은 여백 추가로 잘림 방지
-          if (!NO_PADDING_TYPES.includes(spec.asset_type)) {
-            await addPadding(filePath, filePath, 5);
+            const asset: GeneratedAsset = {
+              id: generateAssetId(),
+              type: "image",
+              asset_type: spec.asset_type,
+              provider: "openai",
+              prompt: spec.prompt,
+              file_path: batchWritten.path,
+              file_name: path.basename(batchWritten.path),
+              mime_type: batchWritten.format === "webp" ? "image/webp" : "image/png",
+              created_at: new Date().toISOString(),
+              metadata: {
+                model: usedModel,
+                ...buildCostTelemetry(usedModel, spec.quality ?? "medium", spec.size, latencyMs),
+              },
+            };
+
+            saveAssetToRegistry(asset, outputDir);
+
+            results.push({
+              index: i,
+              prompt: spec.prompt,
+              asset_type: spec.asset_type,
+              provider: "openai",
+              model,
+              success: true,
+              file_path: batchWritten.path,
+              asset_id: asset.id,
+            });
+          } catch (error) {
+            results.push({
+              index: i,
+              prompt: spec.prompt,
+              asset_type: spec.asset_type,
+              provider: "openai",
+              model,
+              success: false,
+              error: handleApiError(error, "openai"),
+            });
           }
-
-          const asset: GeneratedAsset = {
-            id: generateAssetId(),
-            type: "image",
-            asset_type: spec.asset_type,
-            provider: "openai",
-            prompt: spec.prompt,
-            file_path: filePath,
-            file_name: fileName,
-            mime_type: mimeType,
-            created_at: new Date().toISOString(),
-            metadata: {
-              model: usedModel,
-              ...buildCostTelemetry(usedModel, spec.quality ?? "medium", spec.size, latencyMs),
-            },
-          };
-
-          saveAssetToRegistry(asset, outputDir);
-
-          results.push({
-            index: i,
-            prompt: spec.prompt,
-            asset_type: spec.asset_type,
-            provider: "openai",
-            model,
-            success: true,
-            file_path: filePath,
-            asset_id: asset.id,
-          });
-        } catch (error) {
-          results.push({
-            index: i,
-            prompt: spec.prompt,
-            asset_type: spec.asset_type,
-            provider: "openai",
-            model,
-            success: false,
-            error: handleApiError(error, "openai"),
-          });
         }
+
+        const succeeded = results.filter((r) => r.success).length;
+        const output = {
+          total: params.specs.length,
+          succeeded,
+          failed: params.specs.length - succeeded,
+          results,
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
+          structuredContent: output,
+          ...(succeeded === 0 ? { isError: true } : {}),
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Batch Generate Images") }],
+          isError: true,
+        };
       }
-
-      const succeeded = results.filter((r) => r.success).length;
-      const output = {
-        total: params.specs.length,
-        succeeded,
-        failed: params.specs.length - succeeded,
-        results,
-      };
-
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
-        structuredContent: output,
-      };
     }
   );
 
@@ -396,7 +367,7 @@ Returns:
       try {
         const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
         const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
-        const conceptHint = params.use_concept ? loadConceptForPrompt(conceptFile) : "";
+        const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
 
         const usedModel = "gpt-image-1-mini";
 
@@ -407,19 +378,14 @@ Returns:
           quality: "medium",
           background: "transparent",
         });
-        const base64 = r.base64;
-        const mimeType = r.mimeType;
         const latencyMs = latency.elapsed();
 
-        const ext = mimeType.includes("jpeg") ? "jpg" : "png";
-        const fileName = generateFileName(`${params.asset_type}_openai`, ext);
-        const filePath = buildAssetPath(outputDir, "images", fileName);
-        saveBase64File(base64, filePath);
-
-        // 캐릭터/스프라이트/무기 등 투명 배경 에셋은 여백 추가로 잘림 방지
+        let autoBuf = Buffer.from(r.base64, "base64") as Buffer;
         if (!NO_PADDING_TYPES.includes(params.asset_type)) {
-          await addPadding(filePath, filePath, 5);
+          autoBuf = await addPaddingToBuffer(autoBuf, 51);
         }
+        const autoTargetPath = buildAssetPath(outputDir, "images", generateFileName(`${params.asset_type}_openai`, "png"));
+        const autoWritten = await writeOptimized(autoBuf, autoTargetPath);
 
         const asset: GeneratedAsset = {
           id: generateAssetId(),
@@ -427,9 +393,9 @@ Returns:
           asset_type: params.asset_type,
           provider: "openai",
           prompt: params.prompt,
-          file_path: filePath,
-          file_name: fileName,
-          mime_type: mimeType,
+          file_path: autoWritten.path,
+          file_name: path.basename(autoWritten.path),
+          mime_type: autoWritten.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             model: usedModel,
@@ -445,7 +411,7 @@ Returns:
               type: "text" as const,
               text: JSON.stringify({
                 success: true,
-                file_path: filePath,
+                file_path: autoWritten.path,
                 asset_id: asset.id,
                 asset_type: params.asset_type,
                 provider: "openai",
@@ -527,13 +493,12 @@ Returns:
           background: params.background,
         });
 
-        const fileName = generateFileName(`${params.asset_type}_responses`, "png");
-        const filePath = buildAssetPath(outputDir, "images", fileName);
-        saveBase64File(result.base64, filePath);
-
+        let resBuf = Buffer.from(result.base64, "base64") as Buffer;
         if (!NO_PADDING_TYPES.includes(params.asset_type)) {
-          await addPadding(filePath, filePath, 5);
+          resBuf = await addPaddingToBuffer(resBuf, 51);
         }
+        const resTargetPath = buildAssetPath(outputDir, "images", generateFileName(`${params.asset_type}_responses`, "png"));
+        const resWritten = await writeOptimized(resBuf, resTargetPath);
 
         const asset: GeneratedAsset = {
           id: generateAssetId(),
@@ -541,9 +506,9 @@ Returns:
           asset_type: params.asset_type,
           provider: `openai-responses/${params.text_model}`,
           prompt: params.prompt,
-          file_path: filePath,
-          file_name: fileName,
-          mime_type: "image/png",
+          file_path: resWritten.path,
+          file_name: path.basename(resWritten.path),
+          mime_type: resWritten.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             revised_prompt: result.revisedPrompt,
@@ -559,7 +524,7 @@ Returns:
         return {
           content: [{ type: "text" as const, text: JSON.stringify({
             success: true,
-            file_path: filePath,
+            file_path: resWritten.path,
             asset_id: asset.id,
             action: params.action,
             revised_prompt: result.revisedPrompt,
@@ -664,22 +629,20 @@ Returns:
             const ms = Date.now() - start;
 
             const safeLabel = task.label.replace(/[^a-z0-9.-]/gi, "_");
-            const fileName = `compare_${params.asset_type}_${safeLabel}_${batchId}.png`;
-            const filePath = buildAssetPath(outputDir, "compare", fileName);
-            saveBase64File(r.base64, filePath);
-
+            const cmpTargetPath = buildAssetPath(outputDir, "compare", `compare_${params.asset_type}_${safeLabel}_${batchId}.png`);
+            let cmpBuf = Buffer.from(r.base64, "base64") as Buffer;
             if (!NO_PADDING_TYPES.includes(params.asset_type)) {
-              await addPadding(filePath, filePath, 5);
+              cmpBuf = await addPaddingToBuffer(cmpBuf, 51);
             }
+            const cmpWritten = await writeOptimized(cmpBuf, cmpTargetPath);
 
-            const stats = fs.statSync(filePath);
             return {
               model: task.label,
               success: true,
-              file_path: filePath,
-              file_name: fileName,
+              file_path: cmpWritten.path,
+              file_name: path.basename(cmpWritten.path),
               generation_ms: ms,
-              file_size_kb: Math.round(stats.size / 1024),
+              file_size_kb: Math.round(cmpWritten.sizeBytes / 1024),
             };
           })
         );

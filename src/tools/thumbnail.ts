@@ -17,7 +17,7 @@ import * as path from "path";
 import sharp from "sharp";
 import { DEFAULT_OUTPUT_DIR } from "../constants.js";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
-import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { safeRefinePrompt, type PromptTargetModel } from "../services/gpt5-prompt.js";
 import { writeOptimized } from "../utils/image-output.js";
 import {
   ensureDir,
@@ -319,7 +319,7 @@ Returns:
         }
 
         // ── Step 2: 장면 묘사 프롬프트 결정 (옵션 GPT-5 refine) ───────────
-        let scenePrompt = params.ai_prompt || buildThumbnailScenePrompt({
+        const baseScenePrompt = params.ai_prompt || buildThumbnailScenePrompt({
           game_name: params.game_name,
           genre: params.genre,
           art_style: params.art_style,
@@ -330,21 +330,14 @@ Returns:
           custom_prompt: undefined,
         });
 
-        let refinedByGPT5 = false;
-        if (params.refine_prompt) {
-          try {
-            scenePrompt = await refineImagePrompt({
-              userDescription: scenePrompt,
-              targetModel: (params.model ?? "gpt-image-2") as
-                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
-              assetType: "thumbnail",
-              conceptHint: `Game: ${params.game_name} — Genre: ${params.genre} — Art style: ${params.art_style} — Theme: ${params.theme}${params.tagline ? ` — Tagline: ${params.tagline}` : ""}`,
-            });
-            refinedByGPT5 = true;
-          } catch (refineErr) {
-            console.warn(`[refine_prompt] thumbnail refinement failed, using original: ${refineErr instanceof Error ? refineErr.message : refineErr}`);
-          }
-        }
+        const { text: scenePrompt, refined: refinedByGPT5 } = await safeRefinePrompt({
+          enabled: params.refine_prompt,
+          text: baseScenePrompt,
+          targetModel: (params.model ?? "gpt-image-2") as PromptTargetModel,
+          assetType: "thumbnail",
+          conceptHint: `Game: ${params.game_name} — Genre: ${params.genre} — Art style: ${params.art_style} — Theme: ${params.theme}${params.tagline ? ` — Tagline: ${params.tagline}` : ""}`,
+          toolName: "thumbnail",
+        });
 
         // ── Step 3: 워드마크 텍스트 이미지 확보 (텍스트 포함 레이아웃만) ──
         let titleText: Awaited<ReturnType<typeof ensureTitleTextImage>> | null = null;

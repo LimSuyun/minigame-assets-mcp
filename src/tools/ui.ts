@@ -17,9 +17,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, DEFAULT_GAME_DESIGN_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE } from "../constants.js";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
-import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { safeRefinePrompt, type PromptTargetModel } from "../services/gpt5-prompt.js";
 import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 import {
   buildAssetPath,
@@ -30,7 +30,8 @@ import {
 } from "../utils/files.js";
 import { handleApiError } from "../utils/errors.js";
 import { saveBase64Optimized } from "../utils/image-output.js";
-import type { GameConcept, GeneratedAsset, GameDesign } from "../types.js";
+import { loadStyleHint } from "../utils/concept-loader.js";
+import type { GeneratedAsset } from "../types.js";
 import sharp from "sharp";
 import { DEFAULT_ASSET_SIZE_SPEC_FILE } from "../constants.js";
 import { loadSizeSpecFile } from "../utils/size-spec.js";
@@ -302,36 +303,6 @@ function calculateNineSlice(spec: ComponentSpec): {
     left: margin,
     note: `border_width=${bw} border_radius=${spec.border_radius}. Adjust if visual border extends beyond this.`,
   };
-}
-
-// ─── 스타일 힌트 로더 ────────────────────────────────────────────────────────
-
-function loadStyleHint(conceptFile?: string, designFile?: string): string {
-  if (designFile) {
-    const resolved = path.resolve(designFile);
-    if (fs.existsSync(resolved)) {
-      try {
-        const design = JSON.parse(fs.readFileSync(resolved, "utf-8")) as GameDesign;
-        const parts: string[] = [];
-        if (design.art_style) parts.push(design.art_style);
-        if (design.color_palette?.length) parts.push(`color palette: ${design.color_palette.slice(0, 4).join(", ")}`);
-        if (design.theme) parts.push(`theme: ${design.theme}`);
-        if (parts.length) return parts.join(", ");
-      } catch { /* ignore */ }
-    }
-  }
-  const conceptPath = path.resolve(conceptFile || DEFAULT_CONCEPT_FILE);
-  if (fs.existsSync(conceptPath)) {
-    try {
-      const concept = JSON.parse(fs.readFileSync(conceptPath, "utf-8")) as GameConcept;
-      const parts: string[] = [];
-      if (concept.art_style) parts.push(concept.art_style);
-      if (concept.color_palette?.length) parts.push(`color palette: ${concept.color_palette.slice(0, 4).join(", ")}`);
-      if (concept.theme) parts.push(`theme: ${concept.theme}`);
-      return parts.join(", ");
-    } catch { /* ignore */ }
-  }
-  return "";
 }
 
 // ─── AI 이미지 생성 헬퍼 ─────────────────────────────────────────────────────
@@ -1334,21 +1305,14 @@ Returns:
         ].filter(Boolean).join(" ");
 
         // GPT-5 refine (opt-in)
-        let prompt = basePrompt;
-        let refinedByGPT5 = false;
-        if (params.refine_prompt) {
-          try {
-            prompt = await refineImagePrompt({
-              userDescription: basePrompt,
-              targetModel: (params.model ?? "gpt-image-2") as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
-              assetType: "background",
-              conceptHint: styleHint,
-            });
-            refinedByGPT5 = true;
-          } catch (e) {
-            console.warn(`[refine_prompt] loading_screen refinement failed: ${e instanceof Error ? e.message : e}`);
-          }
-        }
+        const { text: prompt, refined: refinedByGPT5 } = await safeRefinePrompt({
+          enabled: params.refine_prompt,
+          text: basePrompt,
+          targetModel: (params.model ?? "gpt-image-2") as PromptTargetModel,
+          assetType: "background",
+          conceptHint: styleHint,
+          toolName: "loading_screen",
+        });
 
         // 레퍼런스 수집
         const refPaths: string[] = [];
@@ -1509,21 +1473,14 @@ Returns:
           `${NO_TEXT_IN_IMAGE}`,
         ].filter(Boolean).join(" ");
 
-        let prompt = basePrompt;
-        let refinedByGPT5 = false;
-        if (params.refine_prompt) {
-          try {
-            prompt = await refineImagePrompt({
-              userDescription: basePrompt,
-              targetModel: (params.model ?? "gpt-image-2") as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
-              assetType: "thumbnail",
-              conceptHint: styleHint,
-            });
-            refinedByGPT5 = true;
-          } catch (e) {
-            console.warn(`[refine_prompt] lobby_screen refinement failed: ${e instanceof Error ? e.message : e}`);
-          }
-        }
+        const { text: prompt, refined: refinedByGPT5 } = await safeRefinePrompt({
+          enabled: params.refine_prompt,
+          text: basePrompt,
+          targetModel: (params.model ?? "gpt-image-2") as PromptTargetModel,
+          assetType: "thumbnail",
+          conceptHint: styleHint,
+          toolName: "lobby_screen",
+        });
 
         const refPaths: string[] = [];
         if (params.background_image_path) {

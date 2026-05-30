@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import { execFileSync } from "child_process";
-import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, NO_TEXT_IN_IMAGE, NO_SHADOW_IN_IMAGE, CHIBI_STYLE_DEFAULT, CLEAN_LINE_STYLE_DEFAULT } from "../constants.js";
 import { generateImageOpenAI } from "../services/openai.js";
 
 import {
@@ -19,16 +19,18 @@ import {
   exportPhaserAtlas,
   exportCocosPlist,
   exportUnityJson,
+  exportGodotTres,
   type FrameInfo,
 } from "../utils/spritesheet-composer.js";
 import { handleApiError } from "../utils/errors.js";
-import { processFrameBase64, removeBackground, compositeOntoSolidBg, processFrameBase64AI, processFrameBase64Chroma } from "../utils/image-process.js";
+import { processFrameBase64, removeBackground, compositeOntoSolidBg, processFrameBase64AI, processFrameBase64Chroma, addPaddingToBuffer, sliceGridIntoFrames } from "../utils/image-process.js";
 import { writeOptimized, resolveOutputFormat } from "../utils/image-output.js";
+import { loadConceptHint, hasSoftStyle } from "../utils/concept-loader.js";
 import { checkSpriteFrameQuality } from "../services/vision-qc.js";
 import { editImageOpenAI } from "../services/openai.js";
-import { refineImagePrompt } from "../services/gpt5-prompt.js";
+import { safeRefinePrompt, type PromptTargetModel } from "../services/gpt5-prompt.js";
 import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
-import type { GameConcept, GeneratedAsset } from "../types.js";
+import type { GeneratedAsset } from "../types.js";
 
 // ─── 기본 액션 세트 ──────────────────────────────────────────────────────────
 
@@ -44,7 +46,7 @@ export const DEFAULT_ACTIONS = [
 
 export type DefaultAction = (typeof DEFAULT_ACTIONS)[number];
 
-// 각 액션별 포즈 설명 (buildActionEditPrompt에서 사용)
+// 각 액션별 포즈 설명 (buildActionEditPrompt 및 sequential 2번째+ 프레임에서 사용)
 export const ACTION_PROMPTS: Record<DefaultAction, string> = {
   idle: "neutral idle standing pose, body relaxed, subtle weight shift to one side",
   walk: "mid-walk pose, one leg stepping forward, arms naturally swinging in opposition",
@@ -54,6 +56,339 @@ export const ACTION_PROMPTS: Record<DefaultAction, string> = {
   hurt: "hurt/damaged reaction — leaning back slightly, grimacing expression, arms up defensively",
   die: "falling or knocked-down pose, body going limp toward the ground",
 };
+
+// 각 액션 첫 프레임 전용: "관찰 가능한 증거(you must see)" 언어로 모델이 추상적 해석으로
+// 중립 자세를 그대로 복사하는 anchor-copy 경향을 억제.
+// ACTION_PROMPTS보다 훨씬 구체적이고 시각적인 묘사 사용.
+export const ACTION_FRAME0_PROMPTS: Record<DefaultAction, string> = {
+  idle:
+    "relaxed standing: both feet planted shoulder-width apart, arms hanging loosely at sides — " +
+    "baseline resting pose, no action",
+  walk:
+    "mid-stride walking — you must see: one foot FORWARD and planted, other foot BEHIND and pushing off, " +
+    "legs clearly separated in a stride. Left arm swings forward as right leg steps forward, " +
+    "right arm swings back — clear left-right asymmetry between limbs",
+  run:
+    "sprinting at full pace — you must see: body pitched FORWARD 15–25 degrees, " +
+    "leading knee RAISED to waist level, trailing leg FULLY EXTENDED behind, " +
+    "both arms bent at ~90 degrees and pumping — unmistakable high-speed running posture",
+  jump:
+    "peak of a jump — you must see: BOTH FEET completely off the ground with visible air beneath them, " +
+    "knees pulled UP toward the chest, arms raised or spread wide for balance — " +
+    "the character is unambiguously airborne, not touching any surface",
+  attack:
+    "moment of attack impact — you must see: attack arm or weapon FULLY EXTENDED at maximum forward reach, " +
+    "torso twisted into the strike, non-attacking arm pulled backward as counterbalance, " +
+    "feet planted wide apart for power — fist or weapon is at its absolute farthest point",
+  hurt:
+    "hit reaction — you must see: torso snapping BACKWARD from impact, " +
+    "head thrown back or to the side, both arms raised DEFENSIVELY in front of the face — " +
+    "entire upper body leans backward, opposite of normal upright stance",
+  die:
+    "actively collapsing — you must see: body losing vertical balance, " +
+    "knees buckling DOWNWARD, torso pitching forward or sideways, " +
+    "arms going limp or flailing outward — character is clearly in the act of falling, not standing",
+};
+
+// ─── Grid 모드 전용: 프레임 단계 묘사 ─────────────────────────────────────────
+//
+// 액션당 한 번의 API 호출로 N×N 그리드 이미지를 생성할 때 사용하는 각 셀(프레임)의 포즈 묘사.
+// 4프레임(2×2)과 9프레임(3×3) 두 가지 세트를 제공한다.
+// 각 묘사는 "관찰 가능한 시각 증거(you must see)" 패턴으로 작성해
+// 모델이 추상적 해석 대신 구체적 포즈를 생성하도록 강제한다.
+
+const GRID_FRAMES_4: Record<string, string[]> = {
+  idle: [
+    "f1 — neutral baseline: feet shoulder-width apart, arms loosely at sides, weight evenly on both feet, eyes forward",
+    "f2 — subtle weight shift right: left heel barely lifted (1-2 px), body tilted ~2° to the right, right knee very slightly bent",
+    "f3 — subtle weight shift left: right heel barely lifted, body tilted ~2° to the left, left knee very slightly bent",
+    "f4 — back to neutral: posture IDENTICAL to f1 — this is a seamless loop, so f4 must match f1 exactly",
+  ],
+  walk: [
+    "f1 — LEFT foot heel striking the ground forward, RIGHT foot back on toes pushing off, RIGHT arm swings forward",
+    "f2 — weight fully transferred to LEFT foot, RIGHT leg swinging forward past center, both arms near neutral crossing",
+    "f3 — RIGHT foot heel striking the ground forward, LEFT foot back on toes pushing off, LEFT arm swings forward",
+    "f4 — weight fully transferred to RIGHT foot, LEFT leg swinging forward past center — completing one full walk cycle",
+  ],
+  run: [
+    "f1 — LEFT foot explosive push-off, body pitched 20° forward, RIGHT knee raised HIGH to waist level",
+    "f2 — full airborne phase: BOTH feet off ground, body nearly horizontal, both arms pumping at ~90°",
+    "f3 — RIGHT foot landing, knee bent DEEP absorbing impact, LEFT leg trailing behind",
+    "f4 — RIGHT foot explosive push-off mirror, body pitched forward, LEFT knee raised HIGH — ready to loop back",
+  ],
+  jump: [
+    "f1 — pre-jump crouch: knees bent 45°, hips lowered, arms pulled back and bent for momentum",
+    "f2 — launch: legs fully extended pushing off, feet JUST leaving the ground, arms rising",
+    "f3 — apex: feet at MAXIMUM height off ground, knees pulled UP toward chest, arms spread wide for balance",
+    "f4 — landing: feet touching ground, knees bent DEEP absorbing impact, arms dropping for balance",
+  ],
+  attack: [
+    "f1 — wind-up: weapon or dominant arm pulled FAR back behind body, weight on rear foot, torso twisted away",
+    "f2 — strike initiation: weight transferring forward, arm beginning forward arc, torso unwinding",
+    "f3 — IMPACT: arm/weapon at FULL EXTENSION at maximum forward reach, torso fully rotated into strike",
+    "f4 — follow-through: arm continuing past impact, weight forward, body beginning to recover toward neutral",
+  ],
+  hurt: [
+    "f1 — impact instant: torso SNAPPING backward from the hit, head thrown back or to the side",
+    "f2 — recoil peak: body leaned back ~30°, BOTH arms raised DEFENSIVELY shielding the face",
+    "f3 — arms lowering, torso starting to straighten, regaining balance",
+    "f4 — recovered: near-upright posture, arms down, slightly tense but stable",
+  ],
+  die: [
+    "f1 — first stagger: ONE knee beginning to buckle inward, torso pitching forward ~20°, arms losing control",
+    "f2 — collapse: BOTH knees near the floor, torso at ~45°, arms reaching toward the ground",
+    "f3 — falling: body near-horizontal, hands and knees touching the floor, head drooping down",
+    "f4 — FINAL REST: entire body completely HORIZONTAL and motionless on the floor, all limbs limp and spread",
+  ],
+};
+
+const GRID_FRAMES_9: Record<string, string[]> = {
+  idle: [
+    "f1 — neutral baseline: feet shoulder-width, arms at sides, weight centered, eyes forward",
+    "f2 — inhale beginning: chest rising slightly, shoulders lifting a fraction",
+    "f3 — full inhale: chest at peak rise, chin slightly lifted",
+    "f4 — exhale beginning: chest starting to lower, shoulders relaxing",
+    "f5 — full exhale: body at natural rest low-point, slight shoulder drop",
+    "f6 — weight shift right starting: left heel micro-lift, body gently leaning 1°",
+    "f7 — weight shift right peak: left heel slightly raised, right foot flat",
+    "f8 — weight returning to center: both feet flat, body vertical again",
+    "f9 — back to neutral: IDENTICAL to f1 — seamless loop",
+  ],
+  walk: [
+    "f1 — LEFT heel striking down forward, RIGHT foot back on toes, RIGHT arm forward",
+    "f2 — LEFT foot fully flat, weight on it, RIGHT leg swinging past LEFT",
+    "f3 — RIGHT heel striking down forward, LEFT foot back on toes, LEFT arm forward",
+    "f4 — RIGHT foot fully flat, weight on it, LEFT leg swinging past RIGHT",
+    "f5 — LEFT heel striking again (second cycle start), RIGHT arm forward",
+    "f6 — LEFT foot flat, weight on it, RIGHT leg beginning to swing",
+    "f7 — mid-step: RIGHT foot passing LEFT, arms crossing center",
+    "f8 — RIGHT heel preparing to strike, LEFT arm coming forward",
+    "f9 — RIGHT heel touching down — ready to loop seamlessly back to f1",
+  ],
+  run: [
+    "f1 — LEFT foot push-off: body 20° lean, RIGHT knee at waist",
+    "f2 — airborne: both feet off ground, knees pulled up, arms at 90°",
+    "f3 — RIGHT foot landing: knee bent deep, LEFT foot trailing",
+    "f4 — RIGHT foot push-off: body 20° lean, LEFT knee at waist",
+    "f5 — airborne again: both feet off, body near-horizontal",
+    "f6 — LEFT foot landing: knee bent deep, RIGHT foot trailing",
+    "f7 — LEFT foot push-off (third cycle): RIGHT knee rising",
+    "f8 — peak airborne: maximum height, both knees pulled up",
+    "f9 — landing approach: feet descending, knees prepared — loops back",
+  ],
+  jump: [
+    "f1 — standing relaxed: anticipating the jump",
+    "f2 — deep crouch: knees at ~90°, hips at lowest point, arms pulling back",
+    "f3 — explosive extension: legs straightening fast, just leaving the ground",
+    "f4 — low ascent: feet ~15% above ground, arms rising",
+    "f5 — mid ascent: feet ~35% above ground, knees bending up",
+    "f6 — apex: feet at MAXIMUM height, knees fully pulled up, arms spread wide",
+    "f7 — mid descent: feet ~35% above ground, preparing to land",
+    "f8 — low descent: feet ~15% above ground, legs extending downward",
+    "f9 — landing: feet touching ground, knees bent DEEP, arms stabilizing",
+  ],
+  attack: [
+    "f1 — battle stance: feet wide apart, weapon or arm ready at side",
+    "f2 — wind-up starts: arm drawing back, weight shifting to rear foot",
+    "f3 — full wind-up: arm at MAXIMUM retraction, torso twisted away from target",
+    "f4 — swing initiation: arm starting forward arc, torso beginning to unwind",
+    "f5 — mid swing: arm at 90° angle, torso halfway rotated, weight transferring",
+    "f6 — IMPACT: arm at FULL EXTENSION, torso fully rotated into strike, peak force",
+    "f7 — immediate follow-through: arm continuing past the impact point",
+    "f8 — follow-through complete: arm at end of arc, weight fully forward",
+    "f9 — recovery: returning to battle stance, ready again",
+  ],
+  hurt: [
+    "f1 — neutral standing: no damage yet",
+    "f2 — impact instant: torso snapping backward, head thrown back",
+    "f3 — recoil: body bent backward ~20°, arms starting to raise",
+    "f4 — recoil peak: maximum backward lean ~30°, arms at full shield position",
+    "f5 — trembling: body slightly shaking, arms still raised defensively",
+    "f6 — recovery beginning: arms lowering slightly, torso tilting forward",
+    "f7 — mid-recovery: arms at chest height, more upright",
+    "f8 — nearly recovered: arms down, slight defensive tension remains",
+    "f9 — recovered: upright stance, arms at sides, slightly tense",
+  ],
+  die: [
+    "f1 — upright standing: normal pose, one moment before collapse",
+    "f2 — first buckle: one knee giving way inward, body pitching forward 15°",
+    "f3 — double buckle: both knees bending, hips dropping, body at 30°",
+    "f4 — heavy stumble: knees near floor, torso at 45°, arms flailing for balance",
+    "f5 — knees hit floor: both knees on the floor, upper body still falling forward",
+    "f6 — chest falling: upper body pitching toward floor, arms out to catch weight",
+    "f7 — on all fours: hands and knees on floor, head still up",
+    "f8 — sliding down: body sliding forward, arms giving out, head dropping",
+    "f9 — FINAL REST: body completely HORIZONTAL and still on the floor, all limbs limp",
+  ],
+};
+
+/** 액션별 지면선 특이사항 주석 — 그리드 프롬프트에 삽입됨 */
+function getGroundPlaneNote(action: string): string {
+  switch (action) {
+    case "die":
+      return (
+        "GROUND PLANE CRITICAL: The floor is at 88% from the cell top (lower than other actions to " +
+        "accommodate the fallen body). As the character collapses, all movement stays above this floor — " +
+        "nothing goes below it. The FINAL frame must show the character lying COMPLETELY HORIZONTAL with " +
+        "the body resting ON this floor line. The floor is invisible but absolute."
+      );
+    case "jump":
+      return (
+        "JUMP GROUND EXCEPTION: Feet START at the 82% ground line in f1 (crouch), RISE ABOVE it during " +
+        "ascent frames, reaching maximum height at the apex, then RETURN to 82% at landing. " +
+        "The feet must never go below 82%."
+      );
+    case "hurt":
+      return (
+        "HURT GROUND NOTE: Feet remain PLANTED at the 82% ground line in ALL frames — only the upper " +
+        "body rocks backward during the hurt reaction. The feet must not leave the ground."
+      );
+    case "walk":
+    case "run":
+      return (
+        "LOCOMOTION GROUND NOTE: The ground line is at 82%. Feet alternate touching this line — one " +
+        "foot is always near 82%, the other swings forward or backward. No foot goes below 82%."
+      );
+    default:
+      return "GROUND LINE: character's feet must be at the 82% line from the top of each cell in all frames.";
+  }
+}
+
+/**
+ * 그리드 모드 전용 프롬프트 빌더.
+ * 단일 API 호출로 N×N 그리드 이미지를 생성하도록 설계됨.
+ * 모든 프레임이 동일 컨텍스트에서 생성되어 크기·지면선 일관성이 sequential 방식보다 높다.
+ */
+function buildGridGenerationPrompt(
+  action: string,
+  gridSize: 2 | 3,
+  characterHint?: string,
+  bgRulesOverride?: string,
+): string {
+  const totalFrames = gridSize * gridSize;
+  const cellPx = Math.floor(1024 / gridSize);
+  const frameDescsMap = gridSize === 2 ? GRID_FRAMES_4 : GRID_FRAMES_9;
+  const isPreset = DEFAULT_ACTIONS.includes(action as DefaultAction);
+  const frameDescs: string[] = frameDescsMap[action]
+    ?? Array.from({ length: totalFrames }, (_, i) =>
+      `f${i + 1} — ${action} animation at ${Math.round((i / (totalFrames - 1)) * 100)}% through the motion cycle`
+    );
+
+  const rowNames = ["top", "middle", "bottom"];
+  const colNames = gridSize === 2 ? ["left", "right"] : ["left", "center", "right"];
+  const cellLines: string[] = [];
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      const idx = r * gridSize + c;
+      cellLines.push(`  Cell ${idx + 1} (${rowNames[r]}-${colNames[c]}): ${frameDescs[idx] ?? `frame ${idx + 1}`}`);
+    }
+  }
+
+  const bgRules = bgRulesOverride
+    ? `${bgRulesOverride}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`
+    : `${WHITE_BG_PROMPT}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
+
+  const groundNote = getGroundPlaneNote(action);
+
+  return [
+    `Generate a ${gridSize}×${gridSize} sprite animation grid for a 2D game character.`,
+    ``,
+    `REFERENCE IMAGE ROLE: The reference shows this character in a NEUTRAL STANDING POSE.`,
+    `Copy from it ONLY: face design, body proportions, hair/eye/skin colors, outfit, accessories.`,
+    `Do NOT copy the standing pose into any cell — each cell has a specific animation pose described below.`,
+    ``,
+    `OUTPUT FORMAT (mandatory):`,
+    `- Output image: 1024×1024 pixels total`,
+    `- Grid: ${gridSize} columns × ${gridSize} rows = ${totalFrames} cells`,
+    `- Each cell: exactly ${cellPx}×${cellPx} pixels`,
+    `- NO gaps, NO borders, NO labels between cells — pure edge-to-edge grid`,
+    `- Cells ordered left-to-right, top-to-bottom`,
+    ``,
+    `CHARACTER CONSISTENCY — ALL ${totalFrames} CELLS MUST MATCH:`,
+    `- Character HEIGHT: must be PIXEL-IDENTICAL in every cell — absolutely NO shrinking or growing`,
+    `- Character SCALE: the same body occupies the same proportion of each cell in all frames`,
+    `- ${groundNote}`,
+    `- HEAD CLEARANCE: head top must stay below 12% from the cell top — leave top margin`,
+    `- FULL BODY: entire body from head to feet visible in every cell — no clipping allowed`,
+    `- ONE CHARACTER per cell — no duplicates, no extra figures`,
+    ...(isPreset ? [] : [`- This is a custom action: "${action}" — show the character clearly performing it`]),
+    ``,
+    `ANIMATION CONTENT — "${action}" cycle:`,
+    ...cellLines,
+    ``,
+    characterHint ? `Character context: ${characterHint}.` : "",
+    bgRules,
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * 단일 API 호출로 모든 액션을 한 장의 그리드 이미지에 생성하는 프롬프트.
+ * 각 셀 = 서로 다른 액션의 대표 포즈.
+ * 모든 액션이 동일 컨텍스트에서 생성 → 캐릭터 일관성 최고, API 1회 호출.
+ */
+function buildMultiActionSheetPrompt(
+  actions: string[],
+  gridSize: 2 | 3,
+  characterHint?: string,
+  bgRulesOverride?: string,
+): string {
+  const totalCells = gridSize * gridSize;
+  const cellPx = Math.floor(1024 / gridSize);
+  const rowNames = ["top", "middle", "bottom"];
+  const colNames = gridSize === 2 ? ["left", "right"] : ["left", "center", "right"];
+
+  const cellLines: string[] = [];
+  for (let i = 0; i < Math.min(actions.length, totalCells); i++) {
+    const action = actions[i];
+    const r = Math.floor(i / gridSize);
+    const c = i % gridSize;
+    const isPreset = DEFAULT_ACTIONS.includes(action as DefaultAction);
+    const poseDesc = isPreset
+      ? ACTION_FRAME0_PROMPTS[action as DefaultAction]
+      : action;
+    cellLines.push(
+      `  Cell ${i + 1} (${rowNames[r]}-${colNames[c]}) [${action.toUpperCase()}]: ${poseDesc}`,
+    );
+  }
+  for (let i = actions.length; i < totalCells; i++) {
+    const r = Math.floor(i / gridSize);
+    const c = i % gridSize;
+    cellLines.push(
+      `  Cell ${i + 1} (${rowNames[r]}-${colNames[c]}): EMPTY — background only, no character`,
+    );
+  }
+
+  const bgRules = bgRulesOverride
+    ? `${bgRulesOverride}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`
+    : `${WHITE_BG_PROMPT}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
+
+  return [
+    `Generate a ${gridSize}×${gridSize} multi-action sprite sheet for a 2D game character.`,
+    ``,
+    `REFERENCE IMAGE ROLE: The reference shows this character in a neutral standing pose.`,
+    `Copy from it ONLY: exact face design, body proportions, colors, outfit, accessories.`,
+    `Do NOT copy the standing pose — each cell has a specific different action described below.`,
+    ``,
+    `OUTPUT FORMAT (mandatory):`,
+    `- Total image: 1024×1024 pixels`,
+    `- Grid: ${gridSize} columns × ${gridSize} rows = ${totalCells} cells, each exactly ${cellPx}×${cellPx} pixels`,
+    `- NO gaps, NO borders, NO labels between cells — pure seamless edge-to-edge grid`,
+    `- Cells ordered: left-to-right, top-to-bottom`,
+    ``,
+    `CHARACTER CONSISTENCY (CRITICAL — all non-empty cells):`,
+    `- IDENTICAL character design in every cell — same face, same outfit, same colors, same proportions`,
+    `- Character HEIGHT must be PIXEL-IDENTICAL in every cell — absolutely no scale variation`,
+    `- Ground line at 82% from cell top — feet anchor at this line (except jump apex, die final pose)`,
+    `- FULL BODY visible in every cell — head, ears, paws, tail — nothing clipped`,
+    `- ONE character per cell — no duplicates, no extra figures`,
+    ``,
+    `CELL CONTENTS (each cell shows a DIFFERENT action):`,
+    ...cellLines,
+    ``,
+    characterHint ? `Character context: ${characterHint}.` : "",
+    bgRules,
+  ].filter(Boolean).join("\n");
+}
 
 /**
  * 일관성 유지 특화 편집 프롬프트 생성.
@@ -70,7 +405,12 @@ const WHITE_BG_PROMPT =
   "CRITICAL: the character itself must NOT contain any pure white (#FFFFFF) pixels — " +
   "use off-white or light cream (at most rgb(220,220,220)) for any light-colored areas on the character";
 
-function buildActionEditPrompt(poseDescription: string, characterHint?: string): string {
+function buildActionEditPrompt(
+  poseDescription: string,
+  characterHint?: string,
+  bgPromptOverride?: string,
+): string {
+  const bgInstruction = bgPromptOverride ?? WHITE_BG_PROMPT;
   return (
     `Redraw this exact character in the following pose or action: ${poseDescription}. ` +
     `Preserve every visual detail from the reference image exactly — ` +
@@ -83,7 +423,7 @@ function buildActionEditPrompt(poseDescription: string, characterHint?: string):
     `The character must NOT exceed 70% of the total image height. ` +
     `Leave at least 15% empty margin at the top and 15% at the bottom. ` +
     `Keep the same camera distance and framing as the reference. ` +
-    `${WHITE_BG_PROMPT}. ` +
+    `${bgInstruction}. ` +
     `${NO_SHADOW_IN_IMAGE} ` +
     `${NO_TEXT_IN_IMAGE}`
   );
@@ -171,6 +511,7 @@ interface SequentialPromptArgs {
   isFirst: boolean;
   characterHint?: string;
   customAction?: string; // 프리셋 외 액션 이름이면 그대로 사용
+  bgRulesOverride?: string; // 미지정 시 WHITE_BG_PROMPT 사용. 크로마키 모드에서는 buildChromaBgPrompt() 결과 전달
 }
 
 /**
@@ -192,17 +533,28 @@ function buildSequentialFramePrompt(args: SequentialPromptArgs): string {
     `never clipped. Character ≤ 70% of image height, ≥ 15% margin top and bottom. ` +
     `Same camera distance and framing as the references.`;
 
-  const bgRules = `${WHITE_BG_PROMPT}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
+  const bgRules = args.bgRulesOverride
+    ? `${args.bgRulesOverride}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`
+    : `${WHITE_BG_PROMPT}. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
   if (isFirst) {
+    // 첫 프레임은 ACTION_FRAME0_PROMPTS의 "you must see" 언어를 사용해
+    // anchor-copy 경향(레퍼런스 포즈를 그대로 복사하는 현상)을 억제한다.
+    const frame0Pose = isPreset
+      ? ACTION_FRAME0_PROMPTS[action as DefaultAction]
+      : action;
+
     return [
       `Generate Frame 1 of ${totalFrames} for the "${action}" animation cycle.`,
-      `This is the STARTING pose of the cycle: ${poseDesc} (${stage}).`,
       ``,
-      `Redraw the character from the reference image EXACTLY — preserve face, body shape, proportions, outfit, colors, accessories.`,
-      `Only the pose changes from the reference. Nothing is added or removed.`,
+      `REFERENCE IMAGE ROLE: The reference shows this character in a NEUTRAL STANDING POSE.`,
+      `Copy from the reference ONLY: face appearance, body proportions, hair/skin/eye colors, outfit design, accessories.`,
+      `Do NOT copy the body stance or pose from the reference — the pose comes from the instructions below.`,
+      ``,
+      `POSE TO GENERATE (this takes priority over whatever pose the reference shows):`,
+      frame0Pose,
+      ``,
       characterHint ? `Character description: ${characterHint}.` : "",
-      ``,
       framingRules,
       bgRules,
     ].filter(Boolean).join(" ");
@@ -252,8 +604,6 @@ async function writeBufferOnSolidBgToTmp(
   fs.writeFileSync(outPath, composed);
 }
 
-const TRANSPARENCY_SUFFIX = ` ${WHITE_BG_PROMPT}.`;
-
 // 크로마키 색상 목록 (캐릭터에 사용되지 않을 색상 권장)
 export const CHROMA_KEY_COLORS: Record<string, [number, number, number]> = {
   magenta:   [255,   0, 255],
@@ -269,14 +619,22 @@ function chromaKeyColorToName(color: [number, number, number]): string {
   return `rgb(${r},${g},${b}) — solid flat color, no gradients, no shadows, no texture`;
 }
 
-// ─── 헬퍼 함수 ───────────────────────────────────────────────────────────────
-
-function loadConceptHint(conceptFile: string): string {
-  const resolved = path.resolve(conceptFile);
-  if (!fs.existsSync(resolved)) return "";
-  const concept = JSON.parse(fs.readFileSync(resolved, "utf-8")) as GameConcept;
-  return `Game: ${concept.game_name}. Style: ${concept.art_style}. Colors: ${concept.color_palette.join(", ")}.`;
+/**
+ * 크로마키 색상에 맞는 배경 지시 프롬프트 생성.
+ * buildBaseCharacterPrompt의 chromaKey 분기와 동일 패턴.
+ * WHITE_BG_PROMPT 대신 이 값을 사용하면 배경 제거(processFrameBase64Chroma)와 정합.
+ */
+function buildChromaBgPrompt(color: [number, number, number]): string {
+  const [r, g, b] = color;
+  return (
+    `Solid flat rgb(${r},${g},${b}) background — perfectly uniform single color, ` +
+    `absolutely no gradients, no shadows, no texture on the background. ` +
+    `CRITICAL: the character must NOT contain any rgb(${r},${g},${b}) or visually similar colored pixels — ` +
+    `use only natural character colors (skin, cloth, metal, leather, and organic tones)`
+  );
 }
+
+// ─── 헬퍼 함수 ───────────────────────────────────────────────────────────────
 
 function readImageAsBase64(filePath: string): { base64: string; mimeType: string } {
   const resolved = path.resolve(filePath);
@@ -325,9 +683,13 @@ function buildBaseCharacterPrompt(
 
   const roleGuidance = ROLE_GUIDANCE[role];
 
+  // 컨셉에 soft/watercolor 스타일이 없으면 CHIBI_STYLE_DEFAULT 위에 clean line 기본 주입.
+  const cleanLineNote = hasSoftStyle(conceptHint) ? "" : `${CLEAN_LINE_STYLE_DEFAULT}. `;
+
   return (
     `A single 2D game character sprite on a ${bgInstruction} ` +
     `${CHIBI_STYLE_DEFAULT} ` +
+    cleanLineNote +
     (roleGuidance ? `CHARACTER ROLE: ${roleGuidance} ` : "") +
     `Character: ${description}. ` +
     `Neutral front-facing stance, body relaxed, arms at sides. ` +
@@ -444,23 +806,14 @@ Returns:
           : undefined;
 
         // GPT-5 프롬프트 리파인 (opt-in)
-        let descriptionForPrompt = params.description;
-        let refinedByGPT5 = false;
-        if (params.refine_prompt) {
-          try {
-            descriptionForPrompt = await refineImagePrompt({
-              userDescription: params.description,
-              targetModel: effectiveModel as
-                | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
-              assetType: "character",
-              conceptHint,
-            });
-            refinedByGPT5 = true;
-          } catch (refineErr) {
-            // 리파인 실패해도 원본으로 계속 진행
-            console.warn(`[refine_prompt] character_base refinement failed, using original: ${refineErr instanceof Error ? refineErr.message : refineErr}`);
-          }
-        }
+        const { text: descriptionForPrompt, refined: refinedByGPT5 } = await safeRefinePrompt({
+          enabled: params.refine_prompt,
+          text: params.description,
+          targetModel: effectiveModel as PromptTargetModel,
+          assetType: "character",
+          conceptHint,
+          toolName: "character_base",
+        });
 
         const prompt = buildBaseCharacterPrompt(
           `${descriptionForPrompt}. This is the BASE reference character — all details must be precise and consistent.`,
@@ -645,21 +998,14 @@ Returns:
         const safeVariant = params.variant_name.replace(/[^a-zA-Z0-9_-]/g, "_");
 
         // GPT-5 리파인 (opt-in)
-        let equipmentDesc = params.equipment_description;
-        let refinedByGPT5 = false;
-        if (params.refine_prompt) {
-          try {
-            equipmentDesc = await refineImagePrompt({
-              userDescription: params.equipment_description,
-              targetModel: "gpt-image-2",
-              assetType: "character",
-              conceptHint: "Equipment combination — preserve base character exactly, only add/show equipped gear.",
-            });
-            refinedByGPT5 = true;
-          } catch (e) {
-            console.warn(`[refine_prompt] character_equipped refinement failed: ${e instanceof Error ? e.message : e}`);
-          }
-        }
+        const { text: equipmentDesc, refined: refinedByGPT5 } = await safeRefinePrompt({
+          enabled: params.refine_prompt,
+          text: params.equipment_description,
+          targetModel: "gpt-image-2",
+          assetType: "character",
+          conceptHint: "Equipment combination — preserve base character exactly, only add/show equipped gear.",
+          toolName: "character_equipped",
+        });
 
         // 편집 프롬프트 구성
         // 마젠타 배경 + 캐릭터 보존 + 장비 자연스럽게 착용
@@ -689,26 +1035,32 @@ Returns:
           size: "1024x1024",
         });
 
-        // 마젠타 크로마키 제거 + residue 패스 (utils/image-process.ts 의 floodFillRemove)
+        // 마젠타 크로마키 제거 + residue 패스 → writeOptimized로 엔진 인식 포맷 저장
         const spriteDir = path.resolve(outputDir, `sprites/${safeCharName}`);
         ensureDir(spriteDir);
         const rawPath = path.join(spriteDir, `_tmp_equipped_raw_${Date.now()}.png`);
-        const finalPath = path.join(spriteDir, `${safeCharName}_${safeVariant}_base.png`);
+        const bgRemovedPath = path.join(spriteDir, `_tmp_equipped_noBg_${Date.now()}.png`);
+        const finalPathBase = path.join(spriteDir, `${safeCharName}_${safeVariant}_base.png`);
 
         fs.writeFileSync(rawPath, Buffer.from(editResult.base64, "base64"));
         try {
-          await removeBackground(rawPath, finalPath, {
+          await removeBackground(rawPath, bgRemovedPath, {
             chromaKeyColor: [255, 0, 255],
             cropToContent: true,
           });
         } finally {
           try { if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath); } catch { /* ignore */ }
         }
+        const bgRemovedBuffer = fs.readFileSync(bgRemovedPath);
+        try { if (fs.existsSync(bgRemovedPath)) fs.unlinkSync(bgRemovedPath); } catch { /* ignore */ }
+        const equippedWritten = await writeOptimized(bgRemovedBuffer, finalPathBase);
+        const finalPath = equippedWritten.path;
 
         const asset: GeneratedAsset = {
           id: generateAssetId(), type: "image", asset_type: "character",
           provider: "openai", prompt: editPrompt, file_path: finalPath,
-          file_name: path.basename(finalPath), mime_type: "image/png",
+          file_name: path.basename(finalPath),
+          mime_type: equippedWritten.format === "webp" ? "image/webp" : "image/png",
           created_at: new Date().toISOString(),
           metadata: {
             character_name: params.character_name,
@@ -806,7 +1158,14 @@ Args:
       (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6), 'off' 에서는 1.
       sequential_mode='anchor_prev' 에서는 글로벌 최소 5 강제.
   - custom_action_prompts (object, optional): Override edit prompts per action.
-  - sequential_mode (string, optional): "anchor_prev" (기본) — 직전 프레임을 reference 로 함께 투입.
+  - generation_mode (string, optional, default "sequential"):
+      "sequential" — anchor+prev 패턴 프레임별 생성 (세밀 제어, 기존 방식).
+      "grid" — 액션당 1회 API 호출로 2×2/3×3 그리드 생성 후 슬라이스.
+              모든 프레임이 한 컨텍스트에서 생성 → 크기·지면선 일관성이 sequential보다 높음.
+              머리 잘림, 크기 변화, 지면선 불일치 문제 방지에 권장.
+  - grid_size (2|3, optional, default 2): grid 모드에서 그리드 크기.
+      2 = 2×2 = 4프레임, 3 = 3×3 = 9프레임.
+  - sequential_mode (string, optional): sequential 모드 전용. "anchor_prev" (기본) — 직전 프레임을 reference 로 함께 투입.
       "off" — 옛 독립 패턴 (각 프레임이 anchor 만 reference, 액션 내 병렬 가능).
   - first_frame_quality_check (boolean, optional, default true): 첫 프레임만 자동 Claude Vision 검증
       + 미달 시 OpenAI fallback. 시퀀스의 토대를 보호합니다.
@@ -820,7 +1179,7 @@ Args:
       composer는 4096px 한도 초과 시 자동으로 그리드로 재배치하므로 1행 스트립을
       강제하려면 sheet_cols=N을 넣더라도 한도 초과 시 자동 재배치됨.
   - frame_padding (number, optional): Padding around each frame (default: 20)
-  - chroma_key_bg (string, optional): 마젠타 권장
+  - chroma_key_bg (string, optional): gpt-image-2 기본 경로는 'magenta' 자동 적용 (asset_generate_character_base와 동일). gpt-image-1 계열은 미지정 시 네이티브 투명.
   - output_dir (string, optional)
 
 Returns:
@@ -841,8 +1200,18 @@ Returns:
           .describe("Actions to generate (overrides prompt_file if set)"),
         frames_per_action: z.number().int().min(1).max(8).optional()
           .describe("Frames per action. 미명시 시 sequential_mode='anchor_prev' 에서는 액션별 매트릭스 (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6), 'off' 에서는 1. prompt_file 객체 맵의 액션별 frames 가 더 우선."),
+        generation_mode: z.enum(["sequential", "grid"]).default("sequential")
+          .describe(
+            "'sequential' (기본): anchor+prev 패턴으로 프레임별 순차 생성 — 세밀한 제어, 액션당 N회 API 호출. " +
+            "'grid': 액션당 1회 API 호출로 N×N 그리드 이미지를 생성 후 슬라이스 — " +
+            "grid_size=2이면 2×2=4프레임/액션, grid_size=3이면 3×3=9프레임/액션. " +
+            "한 액션의 모든 프레임이 동일 컨텍스트에서 생성되어 크기·지면선 일관성 최고. " +
+            "베이스 이미지 1장으로 모든 액션을 병렬 생성, API 비용·시간 대폭 절감."
+          ),
+        grid_size: z.union([z.literal(2), z.literal(3)]).default(2)
+          .describe("grid 모드에서 그리드 크기. 2 = 2×2 = 4프레임/액션, 3 = 3×3 = 9프레임/액션."),
         sequential_mode: z.enum(["anchor_prev", "off"]).default("anchor_prev")
-          .describe("'anchor_prev' (기본): 직전 프레임을 reference 로 함께 투입해 모션 연속성 확보 + anchor 로 디자인 동결. 'off': 옛 독립 패턴 (액션 내 병렬 가능)."),
+          .describe("sequential 모드에서만 유효. 'anchor_prev' (기본): 직전 프레임을 reference 로 함께 투입해 모션 연속성 확보. 'off': 옛 독립 패턴."),
         first_frame_quality_check: z.boolean().default(true)
           .describe("첫 프레임만 자동 Claude Vision 검증 + 미달 시 OpenAI fallback. 시퀀스의 토대를 보호합니다."),
         auto_compose_sheet: z.boolean().default(true)
@@ -851,9 +1220,9 @@ Returns:
           .describe("Override edit prompts per action: { action_name: edit_prompt } (merges with prompt_file). sequential_mode 에서는 첫 프레임이든 직전+anchor 컨텍스트든 동일하게 적용됩니다."),
         edit_model: z.string().optional()
           .describe("OpenAI model for image editing (default: gpt-image-2). gpt-image-1 계열도 사용 가능하나 gpt-image-2가 품질 최고."),
-        export_formats: z.array(z.enum(["individual", "phaser", "cocos", "unity"]))
+        export_formats: z.array(z.enum(["individual", "phaser", "cocos", "unity", "godot"]))
           .default(["individual", "phaser"])
-          .describe("Engine export formats: phaser / cocos / unity. 기본은 individual + phaser atlas json. Unity 사용자는 'unity' 추가."),
+          .describe("Engine export formats: phaser / cocos / unity / godot. 기본은 individual + phaser atlas json. Unity 사용자는 'unity', Godot 4 사용자는 'godot' 추가 (.tres SpriteFrames 생성)."),
         sheet_padding: z.number().int().min(0).max(64).default(0)
           .describe("Pixel padding between frames in the composed sheet"),
         sheet_cols: z.number().int().min(1).optional()
@@ -861,7 +1230,10 @@ Returns:
         frame_padding: z.number().int().min(0).max(300).default(20)
           .describe("Padding pixels added around each individual sprite frame (prevents edge cropping). Default: 20"),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
-          .describe("Intermediate background color for edit. STRONGLY RECOMMENDED 'magenta' with gpt-image-2 — 외곽선으로 닫힌 포켓(겨드랑이 등) 잔류를 residue 패스로 제거. 흰색 flood-fill은 내부 포켓 잔류 위험."),
+          .describe("중간 배경색 override. gpt-image-2 기본 경로는 'magenta' 자동 적용(asset_generate_character_base와 동일). " +
+            "외곽선으로 닫힌 포켓(겨드랑이 등) 잔류를 residue 패스로 제거. " +
+            "흰색 flood-fill은 흰 캐릭터(토끼·흰 의상 등)에서 배경/캐릭터 구분 불가. " +
+            "gpt-image-1 계열은 네이티브 투명을 지원하므로 미지정 시 chroma_key 미사용."),
         bg_threshold: z.number().int().min(0).max(255).default(240)
           .describe("White background removal threshold (0-255). Used only when chroma_key_bg is not set."),
         quality_check: z.boolean().default(false)
@@ -878,6 +1250,7 @@ Returns:
       },
     },
     async (params) => {
+      try {
       const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
       const safeCharName = params.character_name.replace(/[^a-zA-Z0-9_-]/g, "_");
       const spriteDir = path.resolve(outputDir, `sprites/${safeCharName}`);
@@ -896,7 +1269,7 @@ Returns:
           actions?: string[] | Record<string, ActionConfig>;
           frames_per_action?: number;  // 배열 형식일 때 전체 기본값
           custom_action_prompts?: Record<string, string>;
-          export_formats?: Array<"individual" | "phaser" | "cocos" | "unity">;
+          export_formats?: Array<"individual" | "phaser" | "cocos" | "unity" | "godot">;
           settings?: { edit_model?: string };
         };
         settings?: { edit_model?: string };
@@ -966,11 +1339,9 @@ Returns:
 
       // 원본 이미지 읽기 (메타데이터용)
       let origBase64: string;
-      let origMime: string;
       try {
         const img = readImageAsBase64(params.base_character_path);
         origBase64 = img.base64;
-        origMime = img.mimeType;
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: handleApiError(error, "File Read") }],
@@ -978,9 +1349,15 @@ Returns:
         };
       }
 
-      // 크로마키 배경 결정 (마젠타 권장 — 엣지 품질 우수)
-      const sheetChromaKeyColor = params.chroma_key_bg
-        ? CHROMA_KEY_COLORS[params.chroma_key_bg] as [number, number, number]
+      // 크로마키 배경 결정.
+      // asset_generate_character_base와 동일하게: gpt-image-2는 투명 배경 미지원이므로
+      // chroma_key_bg 미지정 시 magenta를 자동 적용한다. gpt-image-1 계열은 네이티브
+      // 투명을 지원하므로 chroma_key_bg 미지정 시 흰 배경 경로를 유지한다.
+      const supportsNativeTransparentEdit = effectiveEditModel.startsWith("gpt-image-1");
+      const effectiveChromaKey: keyof typeof CHROMA_KEY_COLORS | undefined =
+        params.chroma_key_bg ?? (supportsNativeTransparentEdit ? undefined : "magenta");
+      const sheetChromaKeyColor = effectiveChromaKey
+        ? CHROMA_KEY_COLORS[effectiveChromaKey] as [number, number, number]
         : undefined;
 
       // Pose-First 패턴: pose_image가 있으면 그걸 편집 기준으로 사용
@@ -1012,7 +1389,7 @@ Returns:
         frames: [],
         animations: {},
         created_at: new Date().toISOString(),
-        provider: "openai/gpt-image-2",
+        provider: `openai/${effectiveEditModel}`,
         ...(poseFirstMode ? { pose_image_path: path.resolve(editSourcePath) } : {}),
       } as SpriteSheetManifest & { pose_image_path?: string };
 
@@ -1047,6 +1424,8 @@ Returns:
         frames: SpriteFrame[];
         frameNames: string[]; // animation 매핑용
         results: FrameResult[];
+        actionSheetPath?: string; // grid 모드: 액션별 투명 배경 시트
+        gridFramePaths?: string[]; // grid 모드: 시트 합성 후 삭제할 개별 프레임 경로
       };
 
       // 단일 프레임 처리 — 호출처에서 anchor/prev 결정 후 호출
@@ -1061,6 +1440,11 @@ Returns:
         const isPreset = DEFAULT_ACTIONS.includes(action as DefaultAction);
         const poseDesc = isPreset ? ACTION_PROMPTS[action as DefaultAction] : action;
 
+        // 배경 프롬프트: 크로마키 모드에서는 해당 색상 지시어, 기본은 흰 배경
+        const effectiveBgRules = sheetChromaKeyColor
+          ? buildChromaBgPrompt(sheetChromaKeyColor)
+          : undefined;
+
         // 프롬프트 결정 — 사용자 custom > sequential builder > 옛 builder
         let prompt: string;
         if (effectiveCustomPrompts?.[action]) {
@@ -1072,6 +1456,7 @@ Returns:
             totalFrames: actionFrameCount,
             isFirst: isFirstFrame,
             characterHint: params.character_hint,
+            bgRulesOverride: effectiveBgRules,
           });
         } else {
           // off 모드 — 옛 동작 호환
@@ -1080,7 +1465,7 @@ Returns:
             const progress = frameIdx / (actionFrameCount - 1);
             frameNote = ` Frame ${frameIdx + 1}/${actionFrameCount} — pose at ${Math.round(progress * 100)}% through the motion.`;
           }
-          prompt = buildActionEditPrompt(poseDesc + frameNote, params.character_hint);
+          prompt = buildActionEditPrompt(poseDesc + frameNote, params.character_hint, effectiveBgRules);
         }
 
         try {
@@ -1103,7 +1488,6 @@ Returns:
             processedBuffer = await processFrameBase64(result.base64, WHITE_BG_THRESHOLD);
           }
           if (params.frame_padding > 0) {
-            const { addPaddingToBuffer } = await import("../utils/image-process.js");
             processedBuffer = await addPaddingToBuffer(processedBuffer, params.frame_padding);
           }
 
@@ -1117,22 +1501,46 @@ Returns:
           let frameQualityIssues: string[] = [];
           let frameFallbackUsed = false;
           if (shouldCheck) {
+            // 첫 프레임에서는 포즈 구별성(POSE_DISTINCT)도 함께 검사
             const qc = await checkSpriteFrameQuality(
               processedBuffer.toString("base64"),
               params.character_hint,
+              isFirstFrame ? action : undefined,
             );
             if (!qc.passed) {
               frameQualityIssues = qc.issues;
               console.warn(`[quality-check] ${params.character_name} ${action} f${frameIdx} 품질 미달 (${qc.issues.join(", ")}) → OpenAI fallback`);
               try {
+                // fallback 배경 지시: 크로마키면 해당 색, 아니면 흰 배경
+                const fallbackBgPrompt = sheetChromaKeyColor
+                  ? buildChromaBgPrompt(sheetChromaKeyColor)
+                  : "pure white (#FFFFFF) background, no gradients, no shadows";
+                // 첫 프레임 fallback: ACTION_FRAME0_PROMPTS의 강한 포즈 묘사 사용.
+                // "Draw a game sprite" 패턴으로 디자인 제약을 느슨하게 풀어 모델이
+                // 포즈를 우선할 수 있도록 함 (디자인은 frames 1+의 anchor가 보정함).
+                const fallbackPoseDesc = (isFirstFrame && DEFAULT_ACTIONS.includes(action as DefaultAction))
+                  ? ACTION_FRAME0_PROMPTS[action as DefaultAction]
+                  : poseDesc;
                 const fallbackPrompt = effectiveCustomPrompts?.[action]
-                  ?? `${poseDesc}. Full body fully visible with no clipping. Single character only. Clean transparent background.`;
+                  ?? [
+                    `Draw a game sprite character in the following pose: ${fallbackPoseDesc}`,
+                    `The character must look NOTHING like a person standing still — the body posture must unmistakably show the "${action}" action.`,
+                    params.character_hint ? `Character: ${params.character_hint}.` : "",
+                    `${fallbackBgPrompt}. Full body visible with no clipping. Single character only.`,
+                  ].filter(Boolean).join(" ");
                 const fallbackResult = await editImageOpenAI({
-                  imagePath: params.base_character_path,
+                  // tmpEditPath: composited anchor — pose_image 포함, edit API에 투명 PNG 직접 전달 방지
+                  imagePath: tmpEditPath,
                   prompt: fallbackPrompt,
                   size: "1024x1024",
                 });
-                processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);
+                if (sheetChromaKeyColor) {
+                  processedBuffer = await processFrameBase64Chroma(
+                    fallbackResult.base64, sheetChromaKeyColor, 80, params.frame_padding,
+                  );
+                } else {
+                  processedBuffer = await processFrameBase64AI(fallbackResult.base64, params.frame_padding);
+                }
                 frameFallbackUsed = true;
               } catch (fallbackErr) {
                 console.warn(`[quality-check] OpenAI fallback 실패:`, fallbackErr);
@@ -1161,7 +1569,7 @@ Returns:
             id: generateAssetId(),
             type: "image",
             asset_type: "sprite",
-            provider: "openai/gpt-image-2",
+            provider: `openai/${effectiveEditModel}`,
             prompt,
             file_path: filePath,
             file_name: fileName,
@@ -1192,7 +1600,7 @@ Returns:
                 passed: frameQualityIssues.length === 0,
                 issues: frameQualityIssues,
                 fallback_used: frameFallbackUsed,
-                provider: frameFallbackUsed ? "openai-fallback" : "openai/gpt-image-2",
+                provider: frameFallbackUsed ? "openai-fallback" : `openai/${effectiveEditModel}`,
               },
             } : {}),
           };
@@ -1220,17 +1628,17 @@ Returns:
 
         for (let frameIdx = 0; frameIdx < count; frameIdx++) {
           const isFirst = frameIdx === 0;
-          const imagePaths =
-            sequentialMode === "anchor_prev" && !isFirst && prevTmpPath
-              ? [tmpEditPath, prevTmpPath]
-              : [tmpEditPath];
+          // prevTmpPath 없이 isFirst=false 프롬프트를 보내면 "SECOND reference image" 언급이
+          // 실제로 전달되지 않은 이미지를 가리켜 모델이 혼동함 — 실제 입력과 프롬프트를 일치시킴
+          const hasPrevRef = sequentialMode === "anchor_prev" && !isFirst && !!prevTmpPath;
+          const imagePaths = hasPrevRef ? [tmpEditPath, prevTmpPath!] : [tmpEditPath];
 
           const out = await processOneFrame({
             action,
             frameIdx,
             actionFrameCount: count,
             imagePaths,
-            isFirstFrame: isFirst,
+            isFirstFrame: !hasPrevRef,  // prev 없으면 first-frame 프롬프트 사용
           });
 
           localResults.push(out.result);
@@ -1275,15 +1683,143 @@ Returns:
         return { action, frames: localFrames, frameNames: localFrameNames, results: localResults };
       };
 
+      // ── Grid 모드: 액션당 1회 API 호출로 N×N 그리드 생성 후 슬라이스 ──────────
+      // grid_size=2 → 2×2 = 4프레임/액션, grid_size=3 → 3×3 = 9프레임/액션.
+      // 한 액션의 모든 프레임이 동일 컨텍스트에서 생성 → 크기·지면선 일관성 최고.
+      // 액션 간 병렬, 셀(프레임) 처리는 순차.
+      const runPerActionGridTask = async (): Promise<ActionOutput[]> => {
+        const gridSize = (params.grid_size ?? 2) as 2 | 3;
+        const totalCells = gridSize * gridSize;
+
+        const effectiveBgRules = sheetChromaKeyColor
+          ? buildChromaBgPrompt(sheetChromaKeyColor)
+          : undefined;
+
+        // 각 액션을 병렬 처리
+        return await Promise.all(effectiveActions.map(async (action): Promise<ActionOutput> => {
+          const safeAction = action.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+          const gridPrompt = buildGridGenerationPrompt(
+            action,
+            gridSize,
+            params.character_hint,
+            effectiveBgRules,
+          );
+
+          // ── 1회 API 호출로 gridSize×gridSize 그리드 생성 ──────────────────
+          let gridBase64: string;
+          try {
+            const gridResult = await editImageOpenAI({
+              imagePaths: [tmpEditPath],
+              prompt: gridPrompt,
+              model: effectiveEditModel as
+                | "gpt-image-2"
+                | "gpt-image-1.5"
+                | "gpt-image-1"
+                | "gpt-image-1-mini",
+              size: "1024x1024",
+            });
+            gridBase64 = gridResult.base64;
+          } catch (error) {
+            return {
+              action,
+              frames: [],
+              frameNames: [],
+              results: [{ action, frame_index: 0, success: false, error: handleApiError(error, `Grid Generation: ${action}`) }],
+            };
+          }
+
+          // Raw 그리드 저장 (디버그용)
+          try {
+            const rawPath = path.join(spriteDir, `${safeCharName}_${safeAction}_grid_raw.png`);
+            fs.writeFileSync(rawPath, Buffer.from(gridBase64, "base64"));
+          } catch { /* ignore */ }
+
+          // ── 그리드 슬라이스 ──────────────────────────────────────────────
+          const gridBuffer = Buffer.from(gridBase64, "base64");
+          let cellBuffers: Buffer[];
+          try {
+            cellBuffers = await sliceGridIntoFrames(gridBuffer, gridSize, gridSize);
+          } catch (sliceErr) {
+            return {
+              action,
+              frames: [],
+              frameNames: [],
+              results: [{ action, frame_index: 0, success: false, error: `슬라이스 실패: ${String(sliceErr)}` }],
+            };
+          }
+
+          // ── 각 셀 배경 제거 + 저장 (시트 합성용 임시 파일, 합성 후 삭제) ─────
+          const frames: SpriteFrame[] = [];
+          const frameNames: string[] = [];
+          const results: FrameResult[] = [];
+          const gridFramePaths: string[] = [];
+
+          for (let i = 0; i < Math.min(cellBuffers.length, totalCells); i++) {
+            const frameIdx = i;
+            const framePad = String(frameIdx).padStart(2, "0");
+
+            try {
+              let buf: Buffer;
+              if (sheetChromaKeyColor) {
+                buf = await processFrameBase64Chroma(
+                  cellBuffers[i].toString("base64"),
+                  sheetChromaKeyColor,
+                  80,
+                  0,
+                );
+              } else {
+                buf = await processFrameBase64(
+                  cellBuffers[i].toString("base64"),
+                  WHITE_BG_THRESHOLD,
+                );
+              }
+              if (params.frame_padding > 0) {
+                buf = await addPaddingToBuffer(buf, params.frame_padding);
+              }
+
+              const pathBase = path.join(spriteDir, `${safeCharName}_${safeAction}_f${framePad}.png`);
+              const written = await writeOptimized(buf, pathBase);
+              const frameName = `${action}_f${framePad}`;
+
+              const frame: SpriteFrame = {
+                name: frameName,
+                file_path: written.path,
+                file_name: path.basename(written.path),
+                action,
+                frame_index: frameIdx,
+              };
+
+              // grid 모드: 개별 프레임은 시트 합성용 임시 파일이므로 레지스트리에 등록하지 않음.
+              // 합성 완료 후 gridFramePaths를 통해 삭제된다.
+
+              frames.push(frame);
+              frameNames.push(frameName);
+              gridFramePaths.push(written.path);
+              results.push({ action, frame_index: frameIdx, success: true, file_path: written.path });
+            } catch (frameErr) {
+              results.push({ action, frame_index: frameIdx, success: false, error: String(frameErr) });
+            }
+          }
+
+          return { action, frames, frameNames, results, gridFramePaths };
+        }));
+      };
+
       // 액션 간 병렬 실행 (각 액션의 시퀀스는 내부적으로 직렬)
-      const actionOutputs = await Promise.all(effectiveActions.map(runActionTask));
+      const generationMode = params.generation_mode ?? "sequential";
+      const actionOutputs = generationMode === "grid"
+        ? await runPerActionGridTask()
+        : await Promise.all(effectiveActions.map(runActionTask));
 
       // 결과를 manifest 와 results 에 합치기 (액션 입력 순서 유지)
       const results: FrameResult[] = [];
+      const actionSheets: Record<string, string> = {};
       for (const ao of actionOutputs) {
         manifest.animations[ao.action] = ao.frameNames;
         manifest.frames.push(...ao.frames);
         results.push(...ao.results);
+        if (ao.actionSheetPath) actionSheets[ao.action] = ao.actionSheetPath;
       }
 
       // 임시 편집 입력 파일 (anchor) 정리
@@ -1351,10 +1887,29 @@ Returns:
               exportUnityJson(sheet, params.character_name, unityPath);
               exportedFiles["unity_json"] = unityPath;
             }
+
+            if (params.export_formats.includes("godot")) {
+              const godotPath = path.join(spriteDir, `${safeCharName}_sprite_frames.tres`);
+              exportGodotTres(sheet, params.character_name, godotPath);
+              exportedFiles["godot_tres"] = godotPath;
+            }
+
           } catch (err) {
             exportErrors["compose"] = handleApiError(err, "SpriteSheet Compose");
           }
         }
+      }
+
+      // grid 모드: 합성 성공/실패·needsCompose 여부와 무관하게 개별 프레임 파일 항상 삭제.
+      // 이전에는 try 블록 안에만 있어 합성 실패 시 또는 needsCompose=false 시 파일이 누수됐음.
+      if (generationMode === "grid") {
+        const gridFramePathsToClean = actionOutputs.flatMap(ao => ao.gridFramePaths ?? []);
+        for (const fp of gridFramePathsToClean) {
+          try { fs.unlinkSync(fp); } catch { /* 이미 없거나 삭제 불가 — 무시 */ }
+        }
+        // manifest의 frame file_path를 빈 문자열로 갱신 — 삭제된 경로를 다른 도구가 참조하지 않도록.
+        manifest.frames.forEach(f => { f.file_path = ""; f.file_name = ""; });
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
       }
 
       const output = {
@@ -1362,9 +1917,17 @@ Returns:
         character_name: params.character_name,
         sprite_dir: spriteDir,
         manifest_path: manifestPath,
-        pose_first_mode: poseFirstMode,
-        sequential_mode: sequentialMode,
-        first_frame_quality_check: params.first_frame_quality_check ?? true,
+        generation_mode: generationMode,
+        ...(generationMode === "grid"
+          ? {
+              grid_size: params.grid_size ?? 2,
+              frames_per_action: (params.grid_size ?? 2) ** 2,
+            }
+          : {
+              pose_first_mode: poseFirstMode,
+              sequential_mode: sequentialMode,
+              first_frame_quality_check: params.first_frame_quality_check ?? true,
+            }),
         auto_compose_sheet: autoCompose,
         ...(poseFirstMode ? { pose_image_used: path.resolve(editSourcePath) } : {}),
         total_frames: results.length,
@@ -1372,7 +1935,10 @@ Returns:
         failed: results.length - succeeded,
         exported_files: exportedFiles,
         export_errors: Object.keys(exportErrors).length > 0 ? exportErrors : undefined,
-        results,
+        // grid 모드: 개별 파일이 삭제됐으므로 file_path 필드를 제거해 클라이언트 혼선 방지
+        results: generationMode === "grid"
+          ? results.map(({ file_path: _fp, ...rest }) => rest)
+          : results,
         animations: Object.fromEntries(
           Object.entries(manifest.animations).map(([k, v]) => [k, v.length])
         ),
@@ -1386,13 +1952,23 @@ Returns:
           unity: exportedFiles["unity_json"]
             ? `Import ${path.basename(exportedFiles["sheet"] ?? "")} → Sprite Mode: Multiple → Slice by cell size (see unity_json for dimensions)`
             : undefined,
+          godot: exportedFiles["godot_tres"]
+            ? `AnimatedSprite2D → Frames → Load: ${safeCharName}_sprite_frames.tres (res:// 경로를 프로젝트에 맞게 수정)`
+            : undefined,
         },
       };
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
         structuredContent: output,
+        ...(succeeded === 0 ? { isError: true } : {}),
       };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Sprite Sheet") }],
+          isError: true,
+        };
+      }
     }
   );
 
@@ -1486,10 +2062,10 @@ Returns:
         console.error(`[character-weapon-sprites] 생성 계획: ${totalSprites}개 스프라이트`);
 
         // ── 스프라이트 생성 ─────────────────────────────────────────────────
-        const results: Array<{
+        type WeaponSpriteResult = {
           character: string; weapon_id: string; weapon_name: string;
           action: string; frame: number; file_path: string; success: boolean; error?: string;
-        }> = [];
+        };
 
         // idle 공통 프레임 프롬프트 (f00/f01/f02 구분)
         const IDLE_FRAME_SUFFIX = [
@@ -1498,79 +2074,102 @@ Returns:
           "body floating slightly downward back to neutral, completing the idle float cycle",
         ];
 
-        for (const weapon of params.weapons) {
-          const safeWeaponId = weapon.id.replace(/[^a-zA-Z0-9_-]/g, "_");
+        // 베이스 캐릭터를 단색 배경에 합성 (edit API는 투명 PNG 직접 입력 시 렌더링 불안정)
+        const tmpWeaponBase = path.join(
+          process.env["TMPDIR"] || "/tmp",
+          `weapon_base_${safeCharId}_${Date.now()}_${Math.random().toString(36).slice(2)}.png`,
+        );
+        // 크로마키 모드면 해당 색상 배경 프롬프트, 아니면 undefined(→ WHITE_BG_PROMPT 사용)
+        const weaponChromaBgPrompt = weaponChromaKeyColor
+          ? buildChromaBgPrompt(weaponChromaKeyColor)
+          : undefined;
 
-          for (const action of params.actions) {
-            const framePrompts =
-              action === "idle"
-                ? [
-                    `${weapon.idle_prompt} ${IDLE_FRAME_SUFFIX[0]}`,
-                    `${weapon.idle_prompt} ${IDLE_FRAME_SUFFIX[1]}`,
-                    `${weapon.idle_prompt} ${IDLE_FRAME_SUFFIX[2]}`,
-                  ]
-                : [
-                    weapon.attack_f00_prompt,
-                    weapon.attack_f01_prompt,
-                    weapon.attack_f02_prompt,
-                  ];
+        let results: WeaponSpriteResult[] = [];
+        try {
+          const compositedBaseBuffer = await compositeOntoSolidBg(
+            path.resolve(params.base_character_path),
+            weaponBgColor,
+          );
+          fs.writeFileSync(tmpWeaponBase, compositedBaseBuffer);
 
-            for (let frameIdx = 0; frameIdx < 3; frameIdx++) {
-              const poseDesc = framePrompts[frameIdx];
-              const editPrompt = buildActionEditPrompt(poseDesc);
+          // 무기 단위 병렬 처리 (무기 간 독립적 — 액션·프레임 내부는 직렬)
+          const perWeaponResults = await Promise.all(params.weapons.map(async (weapon) => {
+            const safeWeaponId = weapon.id.replace(/[^a-zA-Z0-9_-]/g, "_");
+            const weaponResults: WeaponSpriteResult[] = [];
 
-              try {
-                const editResult = await editImageOpenAI({
-                  imagePath: path.resolve(params.base_character_path),
-                  prompt: editPrompt,
-                  model: params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
-                });
+            for (const action of params.actions) {
+              const framePrompts =
+                action === "idle"
+                  ? [
+                      `${weapon.idle_prompt} ${IDLE_FRAME_SUFFIX[0]}`,
+                      `${weapon.idle_prompt} ${IDLE_FRAME_SUFFIX[1]}`,
+                      `${weapon.idle_prompt} ${IDLE_FRAME_SUFFIX[2]}`,
+                    ]
+                  : [
+                      weapon.attack_f00_prompt,
+                      weapon.attack_f01_prompt,
+                      weapon.attack_f02_prompt,
+                    ];
 
-                // 배경 제거: 크로마키 모드 또는 순백 flood-fill
-                let processedBuffer: Buffer;
-                if (weaponChromaKeyColor) {
-                  processedBuffer = await processFrameBase64Chroma(editResult.base64, weaponChromaKeyColor);
-                } else {
-                  processedBuffer = await processFrameBase64(editResult.base64, WHITE_BG_THRESHOLD);
+              for (let frameIdx = 0; frameIdx < 3; frameIdx++) {
+                const poseDesc = framePrompts[frameIdx];
+                const editPrompt = buildActionEditPrompt(poseDesc, undefined, weaponChromaBgPrompt);
+
+                try {
+                  const editResult = await editImageOpenAI({
+                    imagePath: tmpWeaponBase,
+                    prompt: editPrompt,
+                    model: params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+                  });
+
+                  // 배경 제거: 크로마키 모드 또는 순백 flood-fill
+                  let processedBuffer: Buffer;
+                  if (weaponChromaKeyColor) {
+                    processedBuffer = await processFrameBase64Chroma(editResult.base64, weaponChromaKeyColor);
+                  } else {
+                    processedBuffer = await processFrameBase64(editResult.base64, WHITE_BG_THRESHOLD);
+                  }
+                  processedBuffer = await addPaddingToBuffer(processedBuffer, 20);
+
+                  // 저장 경로: {output_dir}/sprites/{character_id}/{weapon_id}/{action}_f{frame}.{png|webp}
+                  const pathBase = buildAssetPath(
+                    outputDir,
+                    `sprites/${safeCharId}/${safeWeaponId}`,
+                    `${safeCharId}_${safeWeaponId}_${action}_f${String(frameIdx).padStart(2, "0")}.png`,
+                  );
+                  const written = await writeOptimized(processedBuffer, pathBase);
+                  const filePath = written.path;
+                  const fileName = path.basename(filePath);
+
+                  const asset: GeneratedAsset = {
+                    id: generateAssetId(),
+                    type: "image",
+                    asset_type: "sprite",
+                    provider: `openai/${params.edit_model}`,
+                    prompt: editPrompt,
+                    file_path: filePath,
+                    file_name: fileName,
+                    mime_type: written.format === "webp" ? "image/webp" : "image/png",
+                    created_at: new Date().toISOString(),
+                    metadata: { character_id: params.character_id, weapon_id: weapon.id, action, frame_index: frameIdx },
+                  };
+                  saveAssetToRegistry(asset, outputDir);
+
+                  weaponResults.push({ character: params.character_id, weapon_id: weapon.id, weapon_name: weapon.displayName, action, frame: frameIdx, file_path: filePath, success: true });
+                  console.error(`[character-weapon-sprites] ✅ ${fileName}`);
+                } catch (err) {
+                  const errMsg = err instanceof Error ? err.message : String(err);
+                  weaponResults.push({ character: params.character_id, weapon_id: weapon.id, weapon_name: weapon.displayName, action, frame: frameIdx, file_path: "", success: false, error: errMsg });
+                  console.error(`[character-weapon-sprites] ❌ ${weapon.id}/${action}/f${frameIdx}: ${errMsg}`);
                 }
-                processedBuffer = await (async () => {
-                  const { addPaddingToBuffer } = await import("../utils/image-process.js");
-                  return addPaddingToBuffer(processedBuffer, 20);
-                })();
-
-                // 저장 경로: {output_dir}/sprites/{character_id}/{weapon_id}/{action}_f{frame}.{png|webp}
-                const pathBase = buildAssetPath(
-                  outputDir,
-                  `sprites/${safeCharId}/${safeWeaponId}`,
-                  `${safeCharId}_${safeWeaponId}_${action}_f${String(frameIdx).padStart(2, "0")}.png`
-                );
-                const written = await writeOptimized(processedBuffer, pathBase);
-                const filePath = written.path;
-                const fileName = path.basename(filePath);
-
-                const asset: GeneratedAsset = {
-                  id: generateAssetId(),
-                  type: "image",
-                  asset_type: "sprite",
-                  provider: "openai/edit",
-                  prompt: editPrompt,
-                  file_path: filePath,
-                  file_name: fileName,
-                  mime_type: written.format === "webp" ? "image/webp" : "image/png",
-                  created_at: new Date().toISOString(),
-                  metadata: { character_id: params.character_id, weapon_id: weapon.id, action, frame_index: frameIdx },
-                };
-                saveAssetToRegistry(asset, outputDir);
-
-                results.push({ character: params.character_id, weapon_id: weapon.id, weapon_name: weapon.displayName, action, frame: frameIdx, file_path: filePath, success: true });
-                console.error(`[character-weapon-sprites] ✅ ${fileName}`);
-              } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                results.push({ character: params.character_id, weapon_id: weapon.id, weapon_name: weapon.displayName, action, frame: frameIdx, file_path: "", success: false, error: errMsg });
-                console.error(`[character-weapon-sprites] ❌ ${weapon.id}/${action}/f${frameIdx}: ${errMsg}`);
               }
             }
-          }
+            return weaponResults;
+          }));
+
+          results = perWeaponResults.flat();
+        } finally {
+          try { if (fs.existsSync(tmpWeaponBase)) fs.unlinkSync(tmpWeaponBase); } catch { /* ignore */ }
         }
 
         const succeeded = results.filter(r => r.success).length;

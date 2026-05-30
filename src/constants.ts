@@ -69,6 +69,16 @@ export const CHIBI_STYLE_DEFAULT =
   "NOT pastel, NOT watercolor-washed, NOT muted, NOT soft. " +
   "Thick clean black outlines (2-3px). High contrast. Flat cel-shading with minimal highlights.";
 
+/**
+ * 게임 에셋 기본 선 스타일 지시어.
+ * CONCEPT.md / game-concept.json에서 부드러운(soft/watercolor/painterly 등) 스타일이
+ * 명시되지 않은 경우 모든 게임 에셋 프롬프트에 자동 주입된다.
+ * 목적: 경계선이 흐릿하거나 번진 이미지 대신 선명하고 깔끔한 게임 에셋을 기본으로 보장.
+ */
+export const CLEAN_LINE_STYLE_DEFAULT =
+  "clean crisp outlines, sharp defined edges, flat cel-shading or clean vector-like illustration style, " +
+  "clear boundaries between all elements, no blurry or soft edges, no painterly smearing";
+
 // Supported image sizes for OpenAI
 export const OPENAI_IMAGE_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
 

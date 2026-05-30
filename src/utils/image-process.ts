@@ -154,9 +154,10 @@ export async function scanChromaResidue(
       if (!isResidue(idx)) continue;
       let size = 0;
       const queue = [pos];
+      let qi = 0;
       visited[pos] = 1;
-      while (queue.length > 0) {
-        const p = queue.shift()!;
+      while (qi < queue.length) {
+        const p = queue[qi++];
         size++;
         const px = p % width;
         const py = (p - px) / width;
@@ -400,12 +401,12 @@ export async function addPaddingToBuffer(inputBuffer: Buffer, paddingPixels: num
  * Base64 이미지를 chroma key flood-fill로 배경 제거 → 콘텐츠 크롭 → 패딩 추가 → Buffer 반환.
  * 단색 배경이 있는 편집 결과에서 rembg보다 정확하게 캐릭터를 보존.
  * @param chromaKeyColor 제거할 배경 RGB 색상
- * @param threshold 색상 허용 거리 (기본: 35)
+ * @param threshold 색상 허용 거리 (기본: 80)
  */
 export async function processFrameBase64Chroma(
   base64: string,
   chromaKeyColor: [number, number, number],
-  threshold = 35,
+  threshold = 80,
   paddingPixels = 0
 ): Promise<Buffer> {
   const tmpPath = path.join(
@@ -473,6 +474,34 @@ export async function makeSeamlessTileable(imageBuffer: Buffer): Promise<Buffer>
     })
     .png()
     .toBuffer();
+}
+
+/**
+ * 그리드 이미지를 cols×rows 셀로 슬라이스하여 Buffer 배열(좌→우, 위→아래 순)로 반환.
+ * 스프라이트 grid 생성 모드에서 API가 반환한 스프라이트 시트를 개별 프레임으로 분리할 때 사용.
+ */
+export async function sliceGridIntoFrames(
+  imageBuffer: Buffer,
+  gridCols: number,
+  gridRows: number,
+): Promise<Buffer[]> {
+  const meta = await sharp(imageBuffer).metadata();
+  const imgW = meta.width ?? 1024;
+  const imgH = meta.height ?? 1024;
+  const cellW = Math.floor(imgW / gridCols);
+  const cellH = Math.floor(imgH / gridRows);
+
+  const frames: Buffer[] = [];
+  for (let r = 0; r < gridRows; r++) {
+    for (let c = 0; c < gridCols; c++) {
+      const frame = await sharp(imageBuffer)
+        .extract({ left: c * cellW, top: r * cellH, width: cellW, height: cellH })
+        .png()
+        .toBuffer();
+      frames.push(frame);
+    }
+  }
+  return frames;
 }
 
 /**

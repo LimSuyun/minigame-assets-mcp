@@ -2,6 +2,39 @@
 
 이 프로젝트의 주요 변경 사항. SemVer 를 따르며, BREAKING 항목은 명시적으로 표시한다.
 
+## 3.3.0 — 2026-05-30
+
+> 일반 이미지 생성 툴 추가 + 스프라이트 grid 모드 파일 관리 개선 + 게임 에셋 기본 선 스타일 적용.
+
+### ✨ 신규 기능
+
+- **`image_generate`** — 게임 에셋과 무관한 범용 이미지 생성 툴.
+  - 게임 컨셉(CONCEPT.md) 주입 없음, 치비 스타일 강제 없음, 이미지 내 텍스트 허용(기본).
+  - `style` 프리셋 10종: photorealistic / illustration / anime / oil-painting / watercolor / 3d-render / sketch / pixel-art / cinematic / flat.
+  - 배경 기본값 `opaque`, 출력 기본 경로 `./generated-images`.
+- **`image_edit`** — 기존 이미지를 기반으로 수정하는 범용 편집 툴 (게임 컨셉 비주입).
+
+### 🔄 동작 변경
+
+- **스프라이트 grid 모드 — 파일 출력 구조 변경** (`asset_generate_sprite_sheet`, `generation_mode: "grid"`):
+  - 개별 프레임 PNG가 영구 저장되지 않음. `_grid_raw.png`(원본 그리드)와 `_sheet.webp`(합성 시트) 두 파일만 남음.
+  - 합성 성공/실패·`auto_compose_sheet` 값 무관하게 개별 프레임이 항상 정리됨(이전에는 합성 실패 시 누수).
+  - 응답 `results[].file_path` 및 `manifest.frames[].file_path`가 삭제된 경로를 더 이상 노출하지 않음.
+
+- **게임 에셋 기본 선 스타일 자동 주입** — CONCEPT.md/game-concept.json에 watercolor·pastel 등 soft 스타일이 명시되지 않으면 `clean crisp outlines, sharp defined edges` 지시어를 모든 게임 에셋 프롬프트에 자동 추가. 스프라이트 베이스 캐릭터에도 동일 적용.
+
+### 🐛 버그 수정
+
+- 스프라이트 grid 모드: `composeSpritSheet` 예외 발생 시 개별 프레임 파일이 디스크에 남는 누수 수정.
+- 스프라이트 grid 모드: `auto_compose_sheet: false` + `export_formats: ["individual"]` 조합 시 파일 누수 수정.
+- `hasSoftStyle`: 게임 이름·색상 팔레트 이름에 "soft" 단어가 포함될 때 false positive로 clean line 주입이 스킵되던 문제 수정 — 이제 `Style:` 섹션만 검사.
+
+### ⚡ 개선
+
+- `SOFT_STYLE_KEYWORDS` 배열을 모듈 레벨 상수로 이동 — 호출마다 재생성 제거.
+- `image_edit`의 `editImageOpenAI` dynamic import → 정적 import로 변경.
+- `editSize` 항상-true 삼항 연산자 dead code 제거.
+
 ## 3.2.0 — 2026-04-28
 
 > 마케팅 도구 전반 재설계 + video 워크플로 폐기 + 스프라이트 시트 한도 가드. BREAKING 다수(시그니처 변경 / 도구 제거)가 포함되지만 SemVer 상 minor 로 발행 — npm 의 v3 라인 유지를 위함. **CHANGELOG 의 BREAKING 섹션을 반드시 참조하세요.**

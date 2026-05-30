@@ -1,5 +1,5 @@
 {
-  "description": "Auto-update hook — checks for new marketplace/plugin versions once every 6 hours on SessionStart. Updates apply on next Claude Code restart.",
+  "description": "minigame-assets plugin hooks:\n  SessionStart — auto-update (6h throttle)\n  UserPromptSubmit — detects asset-generation intent, validates OPENAI_API_KEY",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,17 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/asset-intent.sh\"",
+            "timeout": 5
           }
         ]
       }

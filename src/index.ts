@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 
 import { registerConceptTools } from "./tools/concept.js";
 import { registerImageTools } from "./tools/image.js";
+import { registerGeneralImageTools } from "./tools/general-image.js";
 import { registerMusicTools } from "./tools/music.js";
 import { registerSpriteTools } from "./tools/sprite.js";
 import { registerProjectDetectorTools } from "./tools/project-detector.js";
@@ -47,6 +48,7 @@ import { registerReviewTools } from "./tools/review.js";
 import { registerDeployTools } from "./tools/deploy.js";
 import { registerConsolidateTools } from "./tools/consolidate.js";
 import { registerTitleTextTools } from "./tools/title-text.js";
+import { cleanupOldJobs } from "./utils/jobs.js";
 
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
@@ -63,6 +65,7 @@ function createMcpServer(): McpServer {
   });
 
   registerConceptTools(server);
+  registerGeneralImageTools(server);
   registerWorkflowTools(server);
   registerProjectDetectorTools(server);
   registerDesignDocTools(server);
@@ -160,6 +163,12 @@ async function runHTTP(): Promise<void> {
 }
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
+
+// 서버 시작 시 7일 이상 된 완료/실패 Job 파일 자동 정리
+try {
+  const removed = cleanupOldJobs();
+  if (removed > 0) console.error(`[minigame-assets-mcp] Cleaned up ${removed} old job file(s)`);
+} catch { /* .jobs 디렉토리가 없으면 무시 */ }
 
 const transport = process.env.TRANSPORT || "stdio";
 

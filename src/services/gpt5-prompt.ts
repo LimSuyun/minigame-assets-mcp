@@ -153,3 +153,43 @@ export async function refineImagePrompt(params: RefinePromptParams): Promise<str
     .replace(/^["']|["']$/g, "")
     .trim();
 }
+
+// ─── 안전 래퍼 ───────────────────────────────────────────────────────────────
+
+export interface SafeRefineResult {
+  /** 리파인된 프롬프트 (실패 시 원본 text 그대로) */
+  text: string;
+  /** 리파인 성공 여부 */
+  refined: boolean;
+}
+
+/**
+ * refineImagePrompt를 안전하게 실행하는 래퍼.
+ * enabled=false면 즉시 { text, refined: false } 반환.
+ * API 오류 시 원본 text를 그대로 반환하고 stderr 경고를 남긴다.
+ */
+export async function safeRefinePrompt(args: {
+  enabled: boolean;
+  text: string;
+  targetModel: PromptTargetModel;
+  assetType: PromptAssetType;
+  conceptHint?: string;
+  toolName: string;
+}): Promise<SafeRefineResult> {
+  if (!args.enabled) return { text: args.text, refined: false };
+  try {
+    const refined = await refineImagePrompt({
+      userDescription: args.text,
+      targetModel: args.targetModel,
+      assetType: args.assetType,
+      conceptHint: args.conceptHint,
+    });
+    return { text: refined, refined: true };
+  } catch (err) {
+    console.warn(
+      `[refine_prompt] ${args.toolName} refinement failed, using original: ` +
+      `${err instanceof Error ? err.message : err}`,
+    );
+    return { text: args.text, refined: false };
+  }
+}
