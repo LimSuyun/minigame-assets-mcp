@@ -146,6 +146,7 @@ async function reviewOneAsset(
   mode: ReviewMode,
   shouldRunVisual: boolean,
   characterHint?: string,
+  characterKind?: "human" | "creature" | "auto",
 ): Promise<AssetReviewResult> {
   const { type: assetType, expectAlpha } = inferAssetType(filePath);
   const issues: string[] = [];
@@ -190,7 +191,7 @@ async function reviewOneAsset(
   } else {
     try {
       const b64 = fs.readFileSync(filePath).toString("base64");
-      const r = await checkSpriteFrameQuality(b64, characterHint);
+      const r = await checkSpriteFrameQuality(b64, { characterHint, characterKind });
       visual = { passed: r.passed, issues: r.issues };
       if (!r.passed) {
         for (const i of r.issues) issues.push(`[visual] ${i}`);
@@ -297,6 +298,8 @@ Args:
   - target_path (string): PNG 파일 또는 디렉토리 경로
   - mode (string): "quick" | "standard" | "deep" (기본: "standard")
   - character_hint (string, optional): 비주얼 체크에 제공할 캐릭터 설명 (정확도 향상)
+  - character_kind (string, optional): "human" | "creature" | "auto" (기본: "auto").
+      human이면 손가락 수·엄지 방향 엄격 검사, creature(동물/마스코트/로봇)면 극단적 손 오류만 감지 (paw 오탐 방지).
   - max_assets (number, optional): 검토할 최대 PNG 개수 (기본: 50, 안전장치)
   - sample_size (number, optional): standard 모드에서 비주얼 체크할 최대 파일 수 (기본: 5)
   - output_report_path (string, optional): 마크다운 리포트 저장 경로. 미지정 시 JSON만 반환.
@@ -309,6 +312,8 @@ Returns:
         mode: z.enum(["quick", "standard", "deep"]).default("standard"),
         character_hint: z.string().max(500).optional()
           .describe("비주얼 체크용 캐릭터 설명 (예: 'green alien soldier in black armor')"),
+        character_kind: z.enum(["human", "creature", "auto"]).default("auto")
+          .describe("종족: human=손가락 엄격 검사, creature=paw 허용(극단 오류만), auto=모델이 판별"),
         max_assets: z.number().int().min(1).max(1000).default(50)
           .describe("최대 검토 PNG 개수 (안전장치)"),
         sample_size: z.number().int().min(1).max(200).default(5)
@@ -344,7 +349,7 @@ Returns:
         const results: AssetReviewResult[] = [];
         for (const f of files) {
           const shouldVisual = visualFiles.has(f);
-          const r = await reviewOneAsset(f, params.mode, shouldVisual, params.character_hint);
+          const r = await reviewOneAsset(f, params.mode, shouldVisual, params.character_hint, params.character_kind);
           results.push(r);
         }
 

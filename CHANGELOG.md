@@ -14,6 +14,7 @@
 - **rembg 모델 선택** — `asset_remove_background`·`asset_remove_background_batch`에 `ai_model` 파라미터 추가: `u2net`(기본) / `isnet-general-use` / `birefnet-general`. isnet/birefnet은 에지 정밀도가 높은 대신 느리고 첫 사용 시 모델 가중치를 다운로드. `removeBackgroundAI`/`processFrameBase64AI` 유틸에도 동일 파라미터 추가 (타임아웃 60s → 120s, 첫 사용 시 가중치 다운로드 고려).
 - **`asset_select_best`** — 후보 이미지 N개(2~10)를 AI 아트디렉터 루브릭(style_fit / composition / clarity / technical, 0~10)으로 병렬 채점해 최고점을 자동 선정. 실격 기준(텍스트·워터마크, 캐릭터 중복, 심각한 해부학 오류, 에지 잘림) 포함. `register_as_canon`으로 선정본 canon 자동 등록. 전자동 파이프라인에서 사람의 "옥석 고르기"를 대체.
 - **vision-qc 검사 항목 4종 추가** — FINGERS(손별 손가락 수 명시 카운팅, 스타일 인지 — 치비는 3~4개 허용, 양손 불일치/5개 초과 감지), CHIRALITY(왼손 두 개 등 좌우 오류), FACING(기준 이미지 대비 방향 반전), PROP_SIDE(소품이 든 손 변경). FACING·PROP_SIDE는 기준 이미지 제공 시 2장 비교로 검사하며, 스프라이트 시트 파이프라인 QC에 base 캐릭터가 기준으로 자동 연결됨. 저해상도 프레임은 검사 전 512px 업스케일 보정.
+- **종족 인지형 손 검사 (`character_kind`)** — FINGERS/CHIRALITY 엄격도를 종족별로 분리: `human`(엄격 카운팅+엄지 방향), `creature`(동물/마스코트/로봇 — paw·벙어리장갑형 손은 정상으로 인정, 6개 이상 뚜렷한 손가락·융합 뭉개짐 등 극단 오류만 감지), `auto`(기본, 모델이 종족 판별 후 기준 적용). `asset_review`에 `character_kind` 파라미터 노출. 비인간 캐릭터의 손가락 오탐 방지.
 - **`analyzeImageOpenAI` 다중 이미지 지원** — `additionalImages`/`primaryLabel`로 라벨 붙은 복수 이미지를 한 호출에 전달 (기준 대비 비교 검사·canon 다중 참조의 기반).
 - **Visual Concept 단계 공식화 (전자동)** — 실행 계획 Stage 0에 편입: 키 비주얼 후보 K개 생성(`KEY_VISUAL_VARIATION_PRESETS` 구도 프리셋 3종 + `CONCEPT_SUPPRESS_EFFECTS` 억제 지시) → `asset_select_best` 자동 선별·canon 등록 → 대표 캐릭터/배경 분리 추출 → 팔레트 역주입 → 스타일 시트. `create-minigame-assets` 스킬에 2.5단계로 절차 문서화 (사람 선택 없음, 전원 미달 시 1회 재생성).
 

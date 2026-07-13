@@ -35,6 +35,13 @@ export interface QualityCheckOptions {
    */
   styleHint?: string;
   /**
+   * 캐릭터 종족. FINGERS/CHIRALITY 엄격도를 결정한다.
+   * - "human": 손가락 수 엄격 카운팅 + 엄지 방향 검사
+   * - "creature": 동물/마스코트/로봇 — 극단적 손 오류(6개 이상·융합 뭉개짐)만 감지
+   * - "auto" (기본): vision 모델이 먼저 종족을 판별 후 기준 적용
+   */
+  characterKind?: "human" | "creature" | "auto";
+  /**
    * 기준 이미지 (base/canon) PNG base64.
    * 제공 시 FACING(방향 일관성)·PROP_SIDE(소품 위치) 비교 검사 추가.
    */
@@ -93,11 +100,23 @@ Check ALL criteria below and report EVERY issue found:
     ? `The art style is "${opts.styleHint}" — stylized characters (chibi/cartoon) legitimately have 3-4 fingers per hand; realistic styles have 5.`
     : `Stylized characters (chibi/cartoon) legitimately have 3-4 fingers per hand; realistic styles have 5.`;
 
-  const fingersCheck = `
-6. FINGERS: For EACH visible hand, explicitly COUNT the fingers you see and state the count (e.g., "left hand: 4, right hand: 4"). ${styleNote} Flag if: the two hands show DIFFERENT finger counts, any hand has MORE than 5 fingers, or fingers are fused/mangled. If hands are hidden, in fists, or too small to count reliably, state "hands not countable" and do NOT flag.`;
+  // 종족별 손 검사 엄격도 — 인간형만 엄격 카운팅, 동물/크리처의 벙어리장갑형 발은
+  // 손가락 구분 자체가 무의미하므로 극단적 오류만 감지 (오탐 방지)
+  const kind = opts.characterKind ?? "auto";
+  const strictFingers = `For EACH visible hand, explicitly COUNT the fingers you see and state the count (e.g., "left hand: 4, right hand: 4"). ${styleNote} Flag if: the two hands show DIFFERENT finger counts, any hand has MORE than 5 fingers, or fingers are fused/mangled. If hands are hidden, in fists, or too small to count reliably, state "hands not countable" and do NOT flag.`;
+  const lenientFingers = `The character is a non-human (animal/mascot/creature/robot) — paws and mitten-like hands are NORMAL and finger counting does NOT apply. ONLY flag egregious hand errors: 6 or more distinct digits on one paw, or a mangled/fused hand mass that reads as an artifact. Do NOT flag paw-style hands, indistinct fingers, or minor count differences.`;
 
-  const chiralityCheck = `
-7. CHIRALITY: Are left and right hands/feet anatomically correct? Check thumb positions (thumbs should face INWARD toward the body on both hands) and foot/shoe orientation. Flag "two left hands", "two right feet", or a limb bending the wrong way.`;
+  const fingersCheck = kind === "human"
+    ? `\n6. FINGERS: ${strictFingers}`
+    : kind === "creature"
+      ? `\n6. FINGERS: ${lenientFingers}`
+      : `\n6. FINGERS: FIRST determine whether the character is (a) human/humanoid with articulated hands, or (b) a non-human animal/mascot/creature/robot with paws or mitten-like hands. If (a): ${strictFingers} If (b): ${lenientFingers}`;
+
+  const chiralityCheck = kind === "creature"
+    ? `
+7. CHIRALITY: Are left and right limbs consistent? For paw-style hands skip thumb checks — only flag feet/shoes pointing the anatomically wrong way or a limb bending backwards.`
+    : `
+7. CHIRALITY: Are left and right hands/feet anatomically correct? For articulated hands check thumb positions (thumbs should face INWARD toward the body on both hands); for paw/mitten hands skip thumb checks. Check foot/shoe orientation. Flag "two left hands", "two right feet", or a limb bending the wrong way.`;
 
   const poseCheck = opts.actionHint
     ? (() => {
