@@ -17,7 +17,7 @@
   "scripts": {
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && cp src/utils/*.py dist/utils/",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest",

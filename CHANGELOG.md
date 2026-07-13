@@ -2,6 +2,21 @@
 
 이 프로젝트의 주요 변경 사항. SemVer 를 따르며, BREAKING 항목은 명시적으로 표시한다.
 
+## Unreleased
+
+### 🐛 버그 수정
+
+- **플러그인 훅 스크립트 누락 복구** — v3.3.0에 커밋된 `hooks.json`이 참조하는 `hooks/asset-intent.sh`(UserPromptSubmit — 에셋 생성 의도 감지 + OPENAI_API_KEY 사전 검증)가 저장소에 빠져 있어 플러그인 사용자의 훅이 깨지던 문제. 스크립트 추가로 해결.
+- **npm 패키지 rembg 스크립트 누락 수정** — `dist/`에 `remove_bg_ai.py`/`remove_chromakey.py`가 포함되지 않아 npm 설치 버전에서 `asset_remove_background`(AI), `asset_remove_background_batch`, 스프라이트 AI 배경 제거 fallback이 항상 실패하던 문제 (v1.0.0부터 존재). `build` 스크립트가 `src/utils/*.py`를 `dist/utils/`로 복사하도록 수정.
+
+### ✨ 신규 기능
+
+- **rembg 모델 선택** — `asset_remove_background`·`asset_remove_background_batch`에 `ai_model` 파라미터 추가: `u2net`(기본) / `isnet-general-use` / `birefnet-general`. isnet/birefnet은 에지 정밀도가 높은 대신 느리고 첫 사용 시 모델 가중치를 다운로드. `removeBackgroundAI`/`processFrameBase64AI` 유틸에도 동일 파라미터 추가 (타임아웃 60s → 120s, 첫 사용 시 가중치 다운로드 고려).
+
+### 🔄 동작 변경
+
+- `asset_remove_background`·`asset_remove_background_batch`의 `threshold`/`bg_color`/`feather` 파라미터는 **deprecated (무시됨)** — 두 도구는 이전부터 색상 임계값이 아닌 rembg AI로 동작했으며, 설명과 실제 동작이 달랐던 것을 바로잡음. 파라미터는 하위 호환을 위해 스키마에 유지.
+
 ## 3.3.0 — 2026-05-30
 
 > 일반 이미지 생성 툴 추가 + 스프라이트 grid 모드 파일 관리 개선 + 게임 에셋 기본 선 스타일 적용.

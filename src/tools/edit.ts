@@ -462,24 +462,23 @@ Returns:
       title: "Remove Background from Sprite/Image",
       description: `Remove the background from a game asset image to make it transparent (PNG with alpha channel).
 
-Works best on images with a solid color background (white, black, green screen, etc.).
-Uses color-distance thresholding — no AI required, instant processing.
+Uses rembg AI segmentation — separates the foreground regardless of background color,
+so it also works on irregular/checkered backgrounds. Requires python3 + rembg installed.
 
 Args:
   - file_path (string): Path to the image file
-  - threshold (number, optional): Sensitivity 0-255 (default: 230).
-      Higher = only remove very bright whites. Lower = remove more shades.
-  - bg_color (string, optional): Color to remove as "R,G,B" (default: "255,255,255" = white)
-  - feather (boolean, optional): Smooth semi-transparent edges (default: true)
+  - ai_model (string, optional): rembg model (default: "u2net").
+      "isnet-general-use" / "birefnet-general" give more precise edges (slower, downloads weights on first use).
   - save_mode (string): "new_file" saves as *_nobg.png (default), "overwrite" replaces original
 
 Returns:
   Path to the transparent PNG file.`,
       inputSchema: z.object({
         file_path: z.string().min(1).describe("Path to the image file"),
-        threshold: z.number().int().min(0).max(255).default(230).describe("Removal threshold"),
-        bg_color: z.string().default("255,255,255").describe("Background color R,G,B"),
-        feather: z.boolean().default(true).describe("Smooth edges"),
+        ai_model: z.enum(["u2net", "isnet-general-use", "birefnet-general"]).default("u2net").describe("rembg segmentation model"),
+        threshold: z.number().int().min(0).max(255).default(230).describe("Deprecated — ignored (kept for backward compatibility)"),
+        bg_color: z.string().default("255,255,255").describe("Deprecated — ignored (kept for backward compatibility)"),
+        feather: z.boolean().default(true).describe("Deprecated — ignored (kept for backward compatibility)"),
         save_mode: z.enum(["new_file", "overwrite"]).default("new_file").describe("Save mode"),
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -491,13 +490,6 @@ Returns:
           return { content: [{ type: "text" as const, text: `Error: File not found: ${inputPath}` }], isError: true };
         }
 
-        const parts = params.bg_color.split(",").map((s) => parseInt(s.trim(), 10));
-        if (parts.length !== 3 || parts.some((n) => isNaN(n))) {
-          return { content: [{ type: "text" as const, text: `Error: bg_color must be "R,G,B" format` }], isError: true };
-        }
-        const bgColor: [number, number, number] = [parts[0], parts[1], parts[2]];
-        const isWhite = bgColor[0] === 255 && bgColor[1] === 255 && bgColor[2] === 255;
-
         let outputPath: string;
         if (params.save_mode === "overwrite") {
           outputPath = inputPath;
@@ -506,7 +498,7 @@ Returns:
           outputPath = path.join(path.dirname(inputPath), `${baseName}_nobg.png`);
         }
 
-        await removeBackgroundAI(inputPath, outputPath);
+        await removeBackgroundAI(inputPath, outputPath, params.ai_model);
 
         const stat = fs.statSync(outputPath);
         const output = { success: true, file_path: outputPath, file_size_kb: Math.round(stat.size / 1024) };
@@ -528,12 +520,12 @@ Returns:
       description: `Remove backgrounds from all PNG files in a sprite folder at once.
 
 Useful after generating a full sprite sheet — processes all action frames in one call.
+Uses rembg AI segmentation (python3 + rembg required).
 
 Args:
   - sprite_dir (string): Directory containing sprite PNG files
-  - threshold (number, optional): Removal threshold (default: 230)
-  - bg_color (string, optional): Background color "R,G,B" (default: "255,255,255")
-  - feather (boolean, optional): Smooth edges (default: true)
+  - ai_model (string, optional): rembg model (default: "u2net").
+      "isnet-general-use" / "birefnet-general" give more precise edges (slower, downloads weights on first use).
   - save_mode (string): "overwrite" replaces files (default), "new_file" appends _nobg
   - skip_sheet (boolean, optional): Skip *_sheet.png files (default: true)
 
@@ -541,9 +533,10 @@ Returns:
   Results for each processed file.`,
       inputSchema: z.object({
         sprite_dir: z.string().min(1).describe("Directory with sprite PNG files"),
-        threshold: z.number().int().min(0).max(255).default(230).describe("Removal threshold"),
-        bg_color: z.string().default("255,255,255").describe("Background color R,G,B"),
-        feather: z.boolean().default(true).describe("Smooth edges"),
+        ai_model: z.enum(["u2net", "isnet-general-use", "birefnet-general"]).default("u2net").describe("rembg segmentation model"),
+        threshold: z.number().int().min(0).max(255).default(230).describe("Deprecated — ignored (kept for backward compatibility)"),
+        bg_color: z.string().default("255,255,255").describe("Deprecated — ignored (kept for backward compatibility)"),
+        feather: z.boolean().default(true).describe("Deprecated — ignored (kept for backward compatibility)"),
         save_mode: z.enum(["new_file", "overwrite"]).default("overwrite").describe("Save mode"),
         skip_sheet: z.boolean().default(true).describe("Skip _sheet.png files"),
       }).strict(),
@@ -555,9 +548,6 @@ Returns:
         if (!fs.existsSync(dirPath)) {
           return { content: [{ type: "text" as const, text: `Error: Directory not found: ${dirPath}` }], isError: true };
         }
-
-        const parts = params.bg_color.split(",").map((s) => parseInt(s.trim(), 10));
-        const bgColor: [number, number, number] = [parts[0], parts[1], parts[2]];
 
         const pngFiles = fs.readdirSync(dirPath)
           .filter((f) => f.endsWith(".png"))
@@ -572,7 +562,7 @@ Returns:
             : path.join(dirPath, fileName.replace(".png", "_nobg.png"));
 
           try {
-            await removeBackgroundAI(inputPath, outputPath);
+            await removeBackgroundAI(inputPath, outputPath, params.ai_model);
             results.push({ file: fileName, success: true, output: outputPath });
           } catch (err) {
             results.push({ file: fileName, success: false, error: String(err) });

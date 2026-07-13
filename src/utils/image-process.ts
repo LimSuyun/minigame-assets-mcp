@@ -364,19 +364,23 @@ const REMBG_SCRIPT = path.resolve(
   "remove_bg_ai.py"
 );
 
+/** rembg 세그멘테이션 모델. u2net이 기본, isnet/birefnet은 에지 정밀도가 더 높다. */
+export type RembgModel = "u2net" | "isnet-general-use" | "birefnet-general";
+
 /**
- * rembg(U2Net)로 배경 제거 후 투명 PNG 저장.
+ * rembg로 배경 제거 후 투명 PNG 저장.
  * 배경이 체크무늬/불규칙한 경우에도 안정적으로 동작.
  */
 export async function removeBackgroundAI(
   inputPath: string,
-  outputPath: string
+  outputPath: string,
+  model: RembgModel = "u2net"
 ): Promise<void> {
   const outDir = path.dirname(outputPath);
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
-  execFileSync("python3", [REMBG_SCRIPT, inputPath, outputPath], {
-    timeout: 60_000,
+  execFileSync("python3", [REMBG_SCRIPT, inputPath, outputPath, model], {
+    timeout: 120_000,
   });
 }
 
@@ -508,7 +512,11 @@ export async function sliceGridIntoFrames(
  * Base64 이미지를 rembg로 배경 제거 → 콘텐츠 크롭 → 패딩 추가 → Buffer 반환.
  * 스프라이트 생성 파이프라인에서 편집 결과 처리용.
  */
-export async function processFrameBase64AI(base64: string, paddingPixels = 0): Promise<Buffer> {
+export async function processFrameBase64AI(
+  base64: string,
+  paddingPixels = 0,
+  model: RembgModel = "u2net"
+): Promise<Buffer> {
   const tmpIn = path.join(
     process.env["TMPDIR"] || "/tmp",
     `rembg_in_${Date.now()}_${Math.random().toString(36).slice(2)}.png`
@@ -517,7 +525,7 @@ export async function processFrameBase64AI(base64: string, paddingPixels = 0): P
 
   try {
     fs.writeFileSync(tmpIn, Buffer.from(base64, "base64"));
-    execFileSync("python3", [REMBG_SCRIPT, tmpIn, tmpOut], { timeout: 60_000 });
+    execFileSync("python3", [REMBG_SCRIPT, tmpIn, tmpOut, model], { timeout: 120_000 });
     const noBgBuffer = fs.readFileSync(tmpOut);
     let result = await cropToContent(noBgBuffer);
     if (paddingPixels > 0) {
