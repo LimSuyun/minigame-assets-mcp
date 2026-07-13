@@ -279,31 +279,49 @@ export interface OpenAIVisionParams {
   imageBase64: string;
   imageMimeType: string;
   prompt: string;
+  /** 첫(주) 이미지 앞에 붙일 라벨 텍스트 (예: "Image 1 — frame under inspection") */
+  primaryLabel?: string;
+  /** 비교 검사용 추가 이미지들. label은 해당 이미지 바로 앞에 텍스트로 삽입된다. */
+  additionalImages?: Array<{ base64: string; mimeType: string; label?: string }>;
   textModel?: "gpt-4.1" | "gpt-4.1-mini" | "gpt-4o" | "gpt-4o-mini";
   maxOutputTokens?: number;
 }
 
 /**
  * OpenAI Responses API로 이미지 분석 → 텍스트 반환.
- * 스프라이트 품질 검증, canon consistency 등에 사용.
+ * 스프라이트 품질 검증, canon consistency, 다중 이미지 비교(기준 이미지 대비) 등에 사용.
  */
 export async function analyzeImageOpenAI(
   params: OpenAIVisionParams
 ): Promise<string> {
   const apiKey = requireEnvVar("OPENAI_API_KEY");
 
+  type ContentPart =
+    | { type: "input_image"; image_url: string }
+    | { type: "input_text"; text: string };
+
+  const content: ContentPart[] = [];
+  if (params.primaryLabel) {
+    content.push({ type: "input_text", text: params.primaryLabel });
+  }
+  content.push({
+    type: "input_image",
+    image_url: `data:${params.imageMimeType};base64,${params.imageBase64}`,
+  });
+  for (const extra of params.additionalImages ?? []) {
+    if (extra.label) {
+      content.push({ type: "input_text", text: extra.label });
+    }
+    content.push({
+      type: "input_image",
+      image_url: `data:${extra.mimeType};base64,${extra.base64}`,
+    });
+  }
+  content.push({ type: "input_text", text: params.prompt });
+
   const body = {
     model: params.textModel ?? "gpt-4.1-mini",
-    input: [{
-      role: "user",
-      content: [
-        {
-          type: "input_image",
-          image_url: `data:${params.imageMimeType};base64,${params.imageBase64}`,
-        },
-        { type: "input_text", text: params.prompt },
-      ],
-    }],
+    input: [{ role: "user", content }],
     max_output_tokens: params.maxOutputTokens ?? 1024,
   };
 

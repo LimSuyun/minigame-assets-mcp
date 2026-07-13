@@ -79,6 +79,37 @@ export const CLEAN_LINE_STYLE_DEFAULT =
   "clean crisp outlines, sharp defined edges, flat cel-shading or clean vector-like illustration style, " +
   "clear boundaries between all elements, no blurry or soft edges, no painterly smearing";
 
+/**
+ * Visual Concept 단계 — 키 비주얼 후보 생성용 구도/무드 변형 프리셋.
+ * "구조는 코드가 결정, 표현은 AI": 후보 간 차이를 결정론적으로 만들어
+ * 자동 선별(asset_select_best)이 의미 있는 비교를 하도록 한다.
+ */
+export const KEY_VISUAL_VARIATION_PRESETS = [
+  {
+    id: "hero_shot",
+    prompt: "heroic medium shot of the main character in the game's signature environment, " +
+      "character occupies the center of the frame, dynamic three-quarter angle, clear silhouette",
+  },
+  {
+    id: "scene_wide",
+    prompt: "wide establishing shot of the game's world, main character visible but small in frame, " +
+      "environment storytelling, strong depth layering with distinct foreground, midground, and background",
+  },
+  {
+    id: "character_closeup",
+    prompt: "close-up shot of the main character with expressive pose and signature props, " +
+      "simple clean background that showcases the color palette and art style",
+  },
+] as const;
+
+/**
+ * 컨셉아트 생성 시 불필요한 효과 억제 지시.
+ * "필요한 요소를 제외한 효과를 억제할수록 완성도가 올라간다" — 컨셉아트 R&D 검증 결과.
+ */
+export const CONCEPT_SUPPRESS_EFFECTS =
+  "No text or watermarks, no UI elements, no lens flare, no excessive glow or particle effects, " +
+  "no decorative borders or frames. Keep the image focused on the essential subject and environment only.";
+
 // Supported image sizes for OpenAI
 export const OPENAI_IMAGE_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
 

@@ -1501,11 +1501,16 @@ Returns:
           let frameQualityIssues: string[] = [];
           let frameFallbackUsed = false;
           if (shouldCheck) {
-            // 첫 프레임에서는 포즈 구별성(POSE_DISTINCT)도 함께 검사
+            // 첫 프레임에서는 포즈 구별성(POSE_DISTINCT)도 함께 검사.
+            // 기준 이미지(base character)를 함께 전달해 FACING(방향)·PROP_SIDE(소품 위치)
+            // 일관성도 검사한다.
             const qc = await checkSpriteFrameQuality(
               processedBuffer.toString("base64"),
-              params.character_hint,
-              isFirstFrame ? action : undefined,
+              {
+                characterHint: params.character_hint,
+                actionHint: isFirstFrame ? action : undefined,
+                referenceBase64: origBase64,
+              },
             );
             if (!qc.passed) {
               frameQualityIssues = qc.issues;

@@ -32,6 +32,40 @@ description: 새 게임 프로젝트용 — 컨셉 정의부터 캐릭터·스�
 - 게임 엔진 감지 (Phaser / Unity / Cocos / Godot)
 - EXECUTION-PLAN.md 생성 (체크리스트 형식)
 
+## 2.5단계: 비주얼 컨셉 확립 (전자동 — 사람 선택 없음)
+
+텍스트 컨셉(CONCEPT.md)을 **시각적 기준(canon 앵커 세트)**으로 변환하는 단계입니다.
+"공들인 키 비주얼 하나가 모든 파생물의 퀄리티를 결정한다" — 이후 모든 Stage가 이 앵커를 기준으로 생성됩니다.
+
+**A. 키 비주얼 후보 생성 (K=3)**
+`asset_generate_image`를 구도 프리셋 3종(hero_shot / scene_wide / character_closeup)으로 각 1회 호출합니다.
+- 각 프롬프트 = base_style_prompt + 구도 프리셋 + 효과 억제 지시(텍스트·워터마크·UI·과도한 글로우 금지)
+- 파일명: `key_visual_candidate_01.png` ~ `_03.png`
+
+**B. 자동 선별 → canon 등록**
+```
+asset_select_best
+  image_paths: [후보 3개 경로]
+  purpose: "key visual for <게임명> — master style anchor"
+  register_as_canon: true
+  canon_type: "other"
+  canon_name: "key_visual"
+```
+- 루브릭: style_fit / composition / clarity / technical (손가락 수·좌우 구분 등 해부학 감점 포함)
+- `all_below_threshold: true`가 반환되면 후보를 **1회만** 재생성 후 재선별 (그래도 미달이면 최고점 후보로 진행하고 리포트에 기록)
+
+**C. 대표 캐릭터·배경 분리 추출**
+선정된 키 비주얼을 기준으로 `asset_generate_with_reference` 2회 호출:
+- 대표 캐릭터 단독 (canon_type: "character", register_as_derived: true)
+- 대표 배경/환경 단독 (canon_type: "background", register_as_derived: true)
+
+**D. 팔레트 역주입 + 스타일 시트**
+- `asset_extract_palette`로 키 비주얼의 실제 팔레트 추출 → CONCEPT.md의 color_palette 갱신
+- `asset_generate_style_reference_sheet`로 canon 세트 시각화
+
+> 이 단계 완료 후 3단계 이후의 캐릭터·배경·UI 생성 시, 여기서 만든 canon을 레퍼런스로 활용하세요
+> (`asset_generate_character_base`의 스타일 근거, `asset_generate_with_reference`의 canon_id 등).
+
 ## 3단계: 캐릭터 베이스 생성
 
 `asset_generate_character_base` 도구로 각 캐릭터의 정면 베이스 이미지를 생성합니다.
@@ -162,6 +196,10 @@ asset_generate_atlas_json  ← 스프라이트 Atlas JSON 생성
 |------|------|----|
 | 컨셉 | `asset_create_concept_md` | — |
 | 실행 계획 | `asset_generate_execution_plan` | — |
+| 키 비주얼 후보 | `asset_generate_image` (구도 프리셋 ×3) | **gpt-image-2** |
+| **후보 자동 선별** | `asset_select_best` (루브릭 채점 → canon 자동 등록) | OpenAI gpt-4.1-mini Vision |
+| 캐릭터/배경 분리 | `asset_generate_with_reference` (키 비주얼 기준) | **gpt-image-2 edit** |
+| 팔레트 역주입 | `asset_extract_palette` | — |
 | 캐릭터 베이스 | `asset_generate_character_base` (role 지원) | **gpt-image-2** (마젠타 크로마키 → 투명) |
 | 장비 결합 베이스 | `asset_generate_character_equipped` | **gpt-image-2 edit** (다중 레퍼런스 합성) |
 | 스프라이트 | `asset_generate_sprite_sheet` (Sequential anchor+prev, 1행 기본) | **gpt-image-2 edit** (마젠타 크로마키, frames_per_action 5+ 매트릭스) |
@@ -174,7 +212,6 @@ asset_generate_atlas_json  ← 스프라이트 Atlas JSON 생성
 | 썸네일 계획 | `asset_plan_thumbnail` | — |
 | 썸네일 생성 | `asset_generate_thumbnail` | **gpt-image-2 edit** (배경·캐릭터 + 타이틀 텍스트 PNG 다중 레퍼런스 합성) |
 | 음악 | `asset_generate_music_local` | 로컬 AudioCraft |
-| 영상 | `asset_generate_video_openai` | OpenAI Sora |
 | **품질 검토** | `asset_review` | OpenAI gpt-4.1-mini Vision (비주얼) + 비 AI (구조·크로마) |
 | 검증 | `asset_validate` (size_spec_file 지정 시 비율 호환성), `asset_list_missing` | — |
 | 마이그레이션 | `asset_consolidate_registry` | 분산 sub-registry 통합 |

@@ -22,9 +22,11 @@ import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
 import sharp from "sharp";
-import { DEFAULT_OUTPUT_DIR } from "../constants.js";
+import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE } from "../constants.js";
 import { scanChromaResidue, type ChromaResidueReport } from "../utils/image-process.js";
-import { checkSpriteFrameQuality } from "../services/vision-qc.js";
+import { checkSpriteFrameQuality, scoreCandidateImage } from "../services/vision-qc.js";
+import { loadConceptHint } from "../utils/concept-loader.js";
+import { registerCanonEntry, generateCanonId } from "../utils/canon.js";
 import { handleApiError } from "../utils/errors.js";
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
@@ -416,6 +418,135 @@ Returns:
       } catch (error) {
         return {
           content: [{ type: "text" as const, text: handleApiError(error, "Asset Review") }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // ── 2. 후보 자동 선별 ──────────────────────────────────────────────────────
+  server.registerTool(
+    "asset_select_best",
+    {
+      title: "Select Best Candidate Image (AI Judge)",
+      description: `Score multiple candidate images with an AI art-director rubric and select the best one automatically.
+Replaces human selection in fully automated pipelines (e.g., Visual Concept stage: generate K key-visual candidates → select best → register as Canon).
+
+Rubric (0-10 each, averaged): style_fit / composition / clarity / technical (anatomy: finger counts, chirality, limbs).
+Disqualifiers (candidate excluded regardless of score): visible text/watermark, extra characters, severe anatomical errors, subject clipped at edge.
+
+Args:
+  - image_paths (string[]): 2-10 candidate image paths
+  - purpose (string): What the image is for (e.g., "key visual for a cozy farming game")
+  - style_context (string, optional): Style guide text. Default: loaded from game concept if use_concept is true.
+  - use_concept (boolean, optional): Load CONCEPT style hint as style_context (default: true)
+  - min_total (number, optional): Minimum acceptable total score (default: 5). If no candidate qualifies, all_below_threshold=true is returned — caller should regenerate.
+  - register_as_canon (boolean, optional): Auto-register the winner as a Canon entry (default: false)
+  - canon_type / canon_name: Required when register_as_canon is true.
+
+Returns:
+  Winner path + per-candidate scores, disqualifiers, rationale. Losers are NOT deleted (kept as candidates for audit).`,
+      inputSchema: z.object({
+        image_paths: z.array(z.string().min(1)).min(2).max(10).describe("Candidate image paths"),
+        purpose: z.string().min(5).max(500).describe("What the image will be used for"),
+        style_context: z.string().max(3000).optional().describe("Style guide text for style_fit scoring"),
+        use_concept: z.boolean().default(true).describe("Load game concept as style context"),
+        min_total: z.number().min(0).max(10).default(5).describe("Minimum acceptable total score"),
+        register_as_canon: z.boolean().default(false).describe("Register winner as Canon"),
+        canon_type: z.enum(["character", "background", "ui", "prop", "effect", "weapon", "logo", "other"]).default("other").describe("Canon category for the winner"),
+        canon_name: z.string().max(200).optional().describe("Canon entry name (required if register_as_canon)"),
+        output_dir: z.string().optional().describe("Asset output directory"),
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (params) => {
+      try {
+        const missing = params.image_paths.filter((p) => !fs.existsSync(path.resolve(p)));
+        if (missing.length > 0) {
+          return {
+            content: [{ type: "text" as const, text: `Error: 파일을 찾을 수 없습니다: ${missing.join(", ")}` }],
+            isError: true,
+          };
+        }
+        if (params.register_as_canon && !params.canon_name) {
+          return {
+            content: [{ type: "text" as const, text: "Error: register_as_canon=true면 canon_name이 필요합니다" }],
+            isError: true,
+          };
+        }
+
+        const styleContext = params.style_context
+          ?? (params.use_concept ? loadConceptHint(DEFAULT_CONCEPT_FILE) : "");
+
+        // 후보 병렬 채점
+        const scored = await Promise.all(
+          params.image_paths.map(async (p) => {
+            const abs = path.resolve(p);
+            const b64 = fs.readFileSync(abs).toString("base64");
+            const score = await scoreCandidateImage(b64, params.purpose, styleContext || undefined);
+            return { file_path: abs, ...score };
+          }),
+        );
+
+        // 실격 제외 후 최고점 선정 (동점 시 style_fit → clarity 순 타이브레이크)
+        const qualified = scored
+          .filter((s) => s.disqualifiers.length === 0 && s.total >= params.min_total)
+          .sort((a, b) =>
+            b.total - a.total
+            || b.scores.style_fit - a.scores.style_fit
+            || b.scores.clarity - a.scores.clarity,
+          );
+
+        const winner = qualified[0];
+        const allBelowThreshold = !winner;
+
+        let canonId: string | undefined;
+        if (winner && params.register_as_canon && params.canon_name) {
+          const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
+          canonId = generateCanonId(params.canon_type, params.canon_name);
+          registerCanonEntry({
+            id: canonId,
+            name: params.canon_name,
+            type: params.canon_type,
+            file_path: winner.file_path,
+            file_name: path.basename(winner.file_path),
+            description: `${params.purpose} — asset_select_best 자동 선정 (score ${winner.total}/10)`,
+            created_at: new Date().toISOString(),
+            metadata: {
+              selected_by: "asset_select_best",
+              score: winner.total,
+              rationale: winner.rationale,
+              candidates: scored.map((s) => ({ file: s.file_path, total: s.total })),
+            },
+          }, outputDir);
+        }
+
+        const output = {
+          success: !allBelowThreshold,
+          all_below_threshold: allBelowThreshold,
+          ...(allBelowThreshold
+            ? { recommendation: `모든 후보가 기준 미달(min_total=${params.min_total}) 또는 실격 — 후보를 재생성하세요` }
+            : {}),
+          winner: winner
+            ? { file_path: winner.file_path, total: winner.total, scores: winner.scores, rationale: winner.rationale }
+            : null,
+          ...(canonId ? { canon_id: canonId } : {}),
+          candidates: scored.map((s) => ({
+            file_path: s.file_path,
+            total: s.total,
+            scores: s.scores,
+            disqualifiers: s.disqualifiers,
+            rationale: s.rationale,
+          })),
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }],
+          structuredContent: output,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: handleApiError(error, "Select Best Candidate") }],
           isError: true,
         };
       }
