@@ -257,7 +257,8 @@ Returns:
         // Stage별 권고 순서
         const stageRecommendations = [
           { stage: 0, name: "Canon & Foundation", tools: ["asset_generate_size_spec", "asset_register_canon", "asset_generate_style_reference_sheet"] },
-          { stage: 0.5, name: "Visual Concept (전자동)", tools: ["asset_generate_image (구도 프리셋 K개)", "asset_select_best (자동 선별→canon 등록)", "asset_generate_with_reference (대표 캐릭터/배경 분리)", "asset_extract_palette"] },
+          { stage: 0.5, name: "Visual Concept (전자동)", tools: ["asset_generate_image (구도 프리셋 K개)", "asset_select_best (자동 선별→canon 등록)", "asset_generate_with_reference (대표 캐릭터/배경 분리 + 플레이 룩앤필 목업)", "asset_generate_design_sheet (캐릭터 3면도)", "asset_extract_palette"] },
+          { stage: 0.7, name: "Design Sheets (세트 에셋)", tools: ["asset_generate_design_sheet (건물/아이콘/소품 — 시트 1장→슬라이스, 세트 일관성 보장)"] },
           { stage: 1, name: "Characters", tools: ["asset_generate_character_base", "asset_generate_character_pose", "asset_generate_action_sprite"] },
           { stage: 2, name: "UI Structural", tools: ["asset_generate_ui_structural", "asset_generate_button_set", "asset_generate_hud_set", "asset_generate_popup_set"] },
           { stage: 3, name: "Backgrounds", tools: ["asset_generate_screen_background"] },

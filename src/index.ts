@@ -35,6 +35,7 @@ import { registerWorkflowTools } from "./tools/workflow.js";
 import { registerAssetUtilTools } from "./tools/asset-utils.js";
 import { registerThumbnailTools } from "./tools/thumbnail.js";
 import { registerCanonTools } from "./tools/canon.js";
+import { registerDesignSheetTools } from "./tools/design-sheet.js";
 import { registerDesignDocTools } from "./tools/design-doc.js";
 import { registerUITools } from "./tools/ui.js";
 import { registerEffectTools } from "./tools/effects.js";
@@ -70,6 +71,7 @@ function createMcpServer(): McpServer {
   registerProjectDetectorTools(server);
   registerDesignDocTools(server);
   registerCanonTools(server);
+  registerDesignSheetTools(server);
   registerImageTools(server);
   registerSpriteTools(server);
   registerUITools(server);

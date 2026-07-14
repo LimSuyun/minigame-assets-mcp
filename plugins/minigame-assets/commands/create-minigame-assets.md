@@ -59,12 +59,48 @@ asset_select_best
 - 대표 캐릭터 단독 (canon_type: "character", register_as_derived: true)
 - 대표 배경/환경 단독 (canon_type: "background", register_as_derived: true)
 
-**D. 팔레트 역주입 + 스타일 시트**
+**D. 캐릭터 컨셉 시트 (3면도)**
+CONCEPT.md의 캐릭터마다 `asset_generate_design_sheet`로 3면도(정면/측면/후면) 시트를 생성합니다:
+```
+asset_generate_design_sheet
+  canon_id: <캐릭터 앵커 또는 키 비주얼>
+  sheet_name: "<캐릭터>_turnaround"
+  items: [{id:"<캐릭터>_front",...}, {id:"<캐릭터>_side",...}, {id:"<캐릭터>_back",...}]
+  item_noun: "full-body character views of the SAME character"
+  view_note: "same neutral standing pose in all views"
+  item_type: "character"
+  slice_max_size: 512
+```
+정면 뷰를 캐릭터 canon으로 등록 → 이후 초상·포즈·스프라이트가 전부 이 시트에서 파생됩니다.
+
+**E. 플레이 스타일 컨셉 (인게임 룩앤필 목업)**
+`asset_generate_with_reference`(키 비주얼 기준)로 **UI 없는 인게임 화면 목업** 1장을 생성해 canon 등록합니다.
+건물 배치 밀도·경로·화면 분위기의 기준이 되며, 배경·화면 구성 에셋과 `asset_validate_consistency`의 비교 기준으로 사용합니다.
+
+**F. 팔레트 역주입 + 스타일 시트**
 - `asset_extract_palette`로 키 비주얼의 실제 팔레트 추출 → CONCEPT.md의 color_palette 갱신
 - `asset_generate_style_reference_sheet`로 canon 세트 시각화
 
 > 이 단계 완료 후 3단계 이후의 캐릭터·배경·UI 생성 시, 여기서 만든 canon을 레퍼런스로 활용하세요
 > (`asset_generate_character_base`의 스타일 근거, `asset_generate_with_reference`의 canon_id 등).
+
+## 2.7단계: 카테고리별 디자인 시트 → 세트 에셋 (권장 경로)
+
+건물·아이콘·소품처럼 **여러 개가 한 세트를 이루는 에셋은 개별 생성 대신 `asset_generate_design_sheet`를 사용**하세요.
+한 장의 시트 안에서 함께 생성된 아이템들은 비례·실루엣·팔레트가 자동으로 통일되며(개별 호출은 일관성이 샘),
+성분 수 검증(불일치 시 1회 재생성)과 슬라이스·크로마 제거·개별 저장까지 자동입니다.
+
+```
+asset_generate_design_sheet
+  canon_id: <환경/스타일 앵커>
+  sheet_name: "building_design_sheet"
+  items: [{id:"seonangdang", description:"..."}, ... 최대 12개]
+  item_noun: "Joseon village buildings"
+  item_type: "prop"
+```
+
+> 실측: 건물 7종 세트 기준 개별 생성 대비 **AI 호출 1/7, 세트 일관성 우세** (장독대 실루엣 회귀 사례 해결).
+> 대형 표시(히어로샷)가 필요한 아이템만 슬라이스를 참조로 개별 리파인을 추가하세요.
 
 ## 3단계: 캐릭터 베이스 생성
 

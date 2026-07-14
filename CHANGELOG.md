@@ -17,6 +17,8 @@
 - **종족 인지형 손 검사 (`character_kind`)** — FINGERS/CHIRALITY 엄격도를 종족별로 분리: `human`(엄격 카운팅+엄지 방향), `creature`(동물/마스코트/로봇 — paw·벙어리장갑형 손은 정상으로 인정, 6개 이상 뚜렷한 손가락·융합 뭉개짐 등 극단 오류만 감지), `auto`(기본, 모델이 종족 판별 후 기준 적용). `asset_review`에 `character_kind` 파라미터 노출. 비인간 캐릭터의 손가락 오탐 방지.
 - **`analyzeImageOpenAI` 다중 이미지 지원** — `additionalImages`/`primaryLabel`로 라벨 붙은 복수 이미지를 한 호출에 전달 (기준 대비 비교 검사·canon 다중 참조의 기반).
 - **Visual Concept 단계 공식화 (전자동)** — 실행 계획 Stage 0에 편입: 키 비주얼 후보 K개 생성(`KEY_VISUAL_VARIATION_PRESETS` 구도 프리셋 3종 + `CONCEPT_SUPPRESS_EFFECTS` 억제 지시) → `asset_select_best` 자동 선별·canon 등록 → 대표 캐릭터/배경 분리 추출 → 팔레트 역주입 → 스타일 시트. `create-minigame-assets` 스킬에 2.5단계로 절차 문서화 (사람 선택 없음, 전원 미달 시 1회 재생성).
+- **`asset_generate_design_sheet`** — 디자인 시트 기반 세트 생성: 여러 아이템(건물/아이콘/소품/캐릭터 뷰)을 **한 장의 시트로 생성** → 크로마 연결 성분 검출 → 개수 검증(불일치 시 1회 자동 재생성) → 슬라이스 → 크로마 제거 → 개별 투명 PNG 저장·registry 등록. "한 장 안에서 함께 생성된 것은 비례·형태 언어가 자동 통일"되는 원리의 파이프라인화. 실측: 건물 7종 세트를 개별 생성 대비 AI 호출 1/7로, 세트 일관성은 더 좋게 생성 (장독대 실루엣 회귀 해결). `src/utils/sheet-slicer.ts` (성분 검출·행 클러스터링·슬라이스) 신설.
+- **컨셉 계층 확장 — 캐릭터 3면도 + 플레이 스타일 목업** — Visual Concept 단계에 (D) 캐릭터별 3면도 컨셉 시트(`asset_generate_design_sheet`로 정면/측면/후면 → 정면을 캐릭터 canon으로), (E) 인게임 룩앤필 목업(UI 없는 플레이 화면 컨셉 — 건물 배치·밀도·분위기 기준) 단계 추가. 상세 에셋(초상·포즈·스프라이트·화면 구성)은 이 컨셉 앵커에서 파생. 세시마을 실증: 촌장·무당 3면도 → 대화창 초상 2종 파생, 캐릭터 동일성 유지 확인.
 
 ### 🔄 동작 변경
 
