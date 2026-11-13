@@ -8,6 +8,7 @@ import { saveAssetToRegistry, generateAssetId, ensureDir } from "../utils/files.
 import { handleApiError } from "../utils/errors.js";
 import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset } from "../types.js";
+import { KS_X_1001_HANGUL } from "../utils/ksx1001-hangul.js";
 
 // ─── Character set definitions ────────────────────────────────────────────────
 
@@ -25,16 +26,10 @@ function getCharSet(character_set: "ascii" | "korean_basic" | "numbers_only"): s
     }
 
     case "korean_basic": {
-      // KS X 1001 완성형 한글 2350자 (U+AC00 기준 빈도 상위 2350자 근사)
-      // Unicode 한글 음절 블록: AC00-D7A3 (11172자) 중 KS X 1001 기준 2350자
-      // 실용적 구현: AC00부터 2350자 순서대로 사용 (표준 완성형과 동일한 배열)
-      const koreanChars: string[] = [];
-      // 한글 완성형 2350자: 가(AC00)부터 시작
-      // KS X 1001의 2350자는 Unicode 한글 음절 내에서 연속 블록은 아니나
-      // 실무에서는 AC00~D79F 범위 내 2350개를 사용
-      for (let i = 0; i < 2350; i++) {
-        koreanChars.push(String.fromCodePoint(0xAC00 + i));
-      }
+      // KS X 1001 완성형 한글 2350자 (표준 배열). 유니코드 한글 음절 블록에서 연속 구간이
+      // 아니므로 표를 내장해 사용한다 (v3.4.0 이하는 U+AC00부터 2350자를 잘라 써서
+      // '사'·'하' 등 ㄹ 이후 초성 음절이 전부 빠져 있었다).
+      const koreanChars: string[] = Array.from(KS_X_1001_HANGUL);
       // ASCII 추가
       const asciiChars: string[] = [];
       for (let i = 32; i <= 126; i++) {

@@ -14,7 +14,7 @@ import sharp from "sharp";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { scanChromaResidue, removeBackground } from "../src/utils/image-process.js";
+import { scanChromaResidue, removeBackground, addPadding, prepareEditInput } from "../src/utils/image-process.js";
 
 const TMP_DIR = path.join(os.tmpdir(), `image-process-test-${Date.now()}`);
 
@@ -289,5 +289,45 @@ describe("removeBackground — chroma-key + residue pass", () => {
     expect(data[centerIdx]).toBeGreaterThan(240); // R
     expect(data[centerIdx + 1]).toBeGreaterThan(240); // G
     expect(data[centerIdx + 2]).toBeGreaterThan(240); // B
+  });
+});
+
+describe("addPadding", () => {
+  it("입력과 출력이 같은 경로여도 제자리 패딩 성공 (asset_generate_weapons 회귀)", async () => {
+    const p = path.join(TMP_DIR, "pad_inplace.png");
+    await sharp({ create: { width: 100, height: 100, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } })
+      .png()
+      .toFile(p);
+    await addPadding(p, p, 10);
+    const meta = await sharp(p).metadata();
+    expect(meta.width).toBe(120);
+    expect(meta.height).toBe(120);
+  });
+});
+
+describe("prepareEditInput", () => {
+  it("투명 픽셀이 있으면 흰 배경 합성본을 반환, 불투명·읽기 실패는 원본 그대로", async () => {
+    const transparent = path.join(TMP_DIR, "edit_transparent.png");
+    const opaqueRgba = path.join(TMP_DIR, "edit_opaque_rgba.png");
+    const opaqueRgb = path.join(TMP_DIR, "edit_opaque_rgb.png");
+    await sharp({ create: { width: 40, height: 40, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .composite([{ input: { create: { width: 10, height: 10, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }, left: 15, top: 15 }])
+      .png().toFile(transparent);
+    await sharp({ create: { width: 40, height: 40, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } } }).png().toFile(opaqueRgba);
+    await sharp({ create: { width: 40, height: 40, channels: 3, background: { r: 0, g: 0, b: 255 } } }).png().toFile(opaqueRgb);
+
+    const t = await prepareEditInput(transparent);
+    expect(t.hadTransparency).toBe(true);
+    const { data, info } = await sharp(t.flattened!).raw().toBuffer({ resolveWithObject: true });
+    expect(info.channels).toBe(3); // 알파 제거
+    expect([data[0], data[1], data[2]]).toEqual([255, 255, 255]); // 모서리 = 흰 배경
+    const center = (20 * info.width + 20) * 3;
+    expect([data[center], data[center + 1], data[center + 2]]).toEqual([255, 0, 0]); // 내용 보존
+
+    for (const p of [opaqueRgba, opaqueRgb, path.join(TMP_DIR, "missing.png")]) {
+      const r = await prepareEditInput(p);
+      expect(r.hadTransparency).toBe(false);
+      expect(r.flattened).toBeUndefined();
+    }
   });
 });

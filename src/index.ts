@@ -3,11 +3,11 @@
  * Minigame Assets MCP Server
  *
  * Generates game assets using AI:
- * - Images: OpenAI gpt-image-2 / gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini
+ * - Images: OpenAI GPT Image — gpt-image-2.6-flare (default) / gpt-image-2.6-sunburst /
+ *           gpt-image-2.5-flare / gpt-image-2.5-sunburst / gpt-image-2 (model IDs: src/models.ts)
  * - Prompt refine: OpenAI GPT-5.4-nano (opt-in per tool via `refine_prompt`)
  * - Vision QC: OpenAI gpt-4.1-mini vision (sprite frame quality, asset_review visual pass)
  * - Music:  Local AudioCraft / MusicGen / Stable Audio server (REST or Gradio)
- * - Video:  OpenAI Sora
  *
  * Game concept management (CONCEPT.md + game-concept.json) for consistent
  * asset style across all generators.

@@ -10,6 +10,7 @@ import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset } from "../types.js";
+import { DEFAULT_OPENAI_IMAGE_MODEL } from "../models.js";
 
 // ─── SVG generators ───────────────────────────────────────────────────────────
 
@@ -312,7 +313,7 @@ Args:
     "asset_generate_guide_npc",
     {
       title: "Generate Tutorial Guide NPC",
-      description: `Generate a tutorial guide NPC character with multiple facial expression variants using gpt-image-1.
+      description: `Generate a tutorial guide NPC character with multiple facial expression variants using gpt-image-2.6-flare.
 
 Processing:
   1. Generate the "idle" base expression first to establish the NPC's appearance
@@ -390,7 +391,7 @@ Returns:
             metadata: {
               expression,
               npc_description: params.npc_description,
-              ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", npcLatencyMs),
+              ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", "1024x1024", npcLatencyMs),
             },
           };
           saveAssetToRegistry(asset, outputDir);

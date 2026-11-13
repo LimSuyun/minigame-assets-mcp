@@ -8,30 +8,28 @@ version: 2.1.0
 
 모든 `asset_generate_*` 도구는 registry metadata 에 `est_cost_usd`, `latency_ms`, `model`, `cost_formula` 를 자동 기록합니다. 아래는 정확한 단가표와 절감 전략.
 
-## OpenAI gpt-image 계열 (2026-04 추정 기준)
+## OpenAI GPT Image 계열 (2026-11 실측 기준, 1024×1024 한 장)
 
-| 모델 | low | medium | high | auto |
+| 모델 | low | medium | high | 비고 |
 |------|-----|--------|------|------|
-| `gpt-image-2` | $0.010 | $0.020 | **$0.040** | $0.025 |
-| `gpt-image-1.5` | $0.008 | $0.016 | $0.030 | $0.020 |
-| `gpt-image-1` | $0.005 | $0.012 | $0.020 | $0.015 |
-| `gpt-image-1-mini` | $0.003 | $0.008 | $0.015 | $0.010 |
+| `gpt-image-2.6-flare` | $0.025 | **$0.043** | $0.053 | 범용 도구 기본값. 네이티브 투명 배경 |
+| `gpt-image-2.6-sunburst` | $0.025 | $0.043 | $0.053 | 편집 정밀도 우선, 느림 (medium/high 는 flare 와 동일 가정) |
+| `gpt-image-2.5-flare` | $0.006 | $0.013 | $0.053 | 가장 저렴. 투명 배경 요청이 간헐적으로 무시됨 |
+| `gpt-image-2` | $0.006 | $0.053 | **$0.211** | 캐릭터·로고·썸네일 파이프라인 기본값. 2027-02-10 종료 예정 |
 
-**2K/4K 사이즈 배수** (gpt-image-2 전용):
-- 1024/1536 (default): ×1.0
-- 1792/1536 wide: ×1.3
+- 출력 토큰 과금($30 / 1M) 환산치이며 입력(프롬프트·참조 이미지) 토큰 비용은 제외.
+- gpt-image-2.5/2.6 계열에서 `quality: "auto"` 또는 미지정은 서버가 `medium` 으로 고정 (생략 시 medium 의 약 4배 토큰이 나오기 때문).
+- `gpt-image-1` / `gpt-image-1-mini` / `gpt-image-1.5` 는 지원 종료 — 지정하면 `gpt-image-2.6-flare` 로 자동 대체.
+- 기본 모델은 `OPENAI_IMAGE_MODEL` 환경변수로 교체 가능.
+
+**2K/4K 사이즈 배수**:
+- 1024 / 1536 / 1792 급: ×1.0
 - 2048×2048: ×1.8
 - 3840×2160 (4K): ×3.0
 
-예: `gpt-image-2, high, 2048×2048` = $0.040 × 1.8 = **$0.072 per image**
+예: `gpt-image-2, high, 2048×2048` = $0.211 × 1.8 = **$0.380 per image**
 
-## OpenAI Sora (영상)
-
-| 모델 | 단가 |
-|------|------|
-| Sora 5–20초 480/720/1080p | 해상도·길이별 가변 (공식 대시보드 참고) |
-
-> v3.0+ 부터 Gemini (Imagen / Veo) 는 코드에서 제거되었습니다. 모든 이미지·비전·영상 경로는 OpenAI 단일화.
+> v3.0+ 부터 Gemini (Imagen / Veo) 는 코드에서 제거되었고, v3.2.0 에서 영상(Sora) 도구도 제거되었습니다. 모든 이미지·비전 경로는 OpenAI 단일화.
 
 ## GPT-5 텍스트 (프롬프트 refine 시)
 
@@ -47,13 +45,13 @@ version: 2.1.0
 
 | 작업 | 권장 모델 | 이유 |
 |------|----------|------|
-| UI 아이콘·버튼 | `gpt-image-1-mini` medium | 단순 · 충분 |
+| UI 아이콘·버튼 | `gpt-image-2.6-flare` medium | 네이티브 투명 · 충분 |
 | 캐릭터 베이스·스프라이트 | `gpt-image-2` high | 디테일·텍스트·일관성 우수 |
 | 배경 (정적) | `gpt-image-2` medium | 텍스트 없으면 high 불필요 |
-| 배경 parallax 레이어 (mid/near 투명) | `gpt-image-1` | 네이티브 투명 배경 |
+| 배경 parallax 레이어 (mid/near 투명) | `gpt-image-2.6-flare` | 네이티브 투명 배경 |
 | 앱 로고 | `gpt-image-2` high | 타이틀 텍스트 PNG 1회 + 합성 (color_scheme별 1회). 캐릭터 미제공 시 대표 이미지 1회 추가 |
 | 썸네일·마케팅 | `gpt-image-2` edit | 배경·캐릭터·타이틀 텍스트 다중 레퍼런스 통합 합성 (품질 최우선) |
-| 프로토타입 전반 | `gpt-image-1-mini` low/medium | 스타일 확정 전 |
+| 프로토타입 전반 | `gpt-image-2.5-flare` low/medium | 스타일 확정 전 (가장 저렴) |
 
 ## 비용 추적 & 집계
 
@@ -64,10 +62,10 @@ asset_list_assets  output_dir: "./.minigame-assets"
 각 에셋의 `metadata.est_cost_usd` 합산하면 프로젝트 누적 비용.
 
 캐릭터 1 (base + 9 sprites + sheet) 예상:
-- base: gpt-image-2 high 1024 = $0.040
-- 9 sprites (edit): $0.040 × 9 × 1.1 (edit multiplier) = $0.396
+- base: gpt-image-2 high 1024 = $0.211
+- 9 sprites (edit, high 가정): $0.211 × 9 = $1.899
 - sheet: 합성 (AI 미사용) = $0
-- **소계: ~$0.44 per character**
+- **소계: ~$2.11 per character** (추정 상한 — 실제 청구는 OpenAI 대시보드 기준)
 
 ## 비용 절감 팁
 
@@ -85,7 +83,7 @@ asset_list_assets  output_dir: "./.minigame-assets"
 ```
 asset_compare_models
   prompt: "chibi Korean boy adventurer, red tunic, transparent bg"
-  models: ["gpt-image-1", "gpt-image-2", "gpt-image-1-mini"]
+  models: ["gpt-image-2.6-flare", "gpt-image-2.5-flare", "gpt-image-2"]
   quality: "medium"
 ```
 → 3장 생성 + registry metadata 에 비교용 tag. 스타일 확인 후 프로젝트 표준 모델 결정.

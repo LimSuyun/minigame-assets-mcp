@@ -137,7 +137,7 @@ claude mcp add minigame-assets --scope user -- \
 
 | 변수 | 필수 | 설명 |
 |---|---|---|
-| `OPENAI_API_KEY` | 필수 | OpenAI API 키 (이미지·영상·비전 전부) |
+| `OPENAI_API_KEY` | 필수 | OpenAI API 키 (이미지·비전 전부) |
 | `ASSETS_OUTPUT_DIR` | 선택 | 마스터 에셋 디렉토리 (기본 `./.minigame-assets`) |
 | `CONCEPT_FILE` | 선택 | 컨셉 JSON 경로 (기본 `./.minigame-assets/game-concept.json`) |
 | `CONCEPT_MD_FILE` | 선택 | CONCEPT.md 경로 (기본 `./.minigame-assets/CONCEPT.md`) |

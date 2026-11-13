@@ -179,14 +179,12 @@ export async function checkSpriteFrameQuality(
               label: "Image 2 — FRAME under inspection:",
             }],
             prompt: userPrompt,
-            textModel: "gpt-4.1-mini",
             maxOutputTokens: 400,
           }
         : {
             imageBase64: prepared,
             imageMimeType: "image/png",
             prompt: userPrompt,
-            textModel: "gpt-4.1-mini",
             maxOutputTokens: 400,
           }
     );
@@ -269,7 +267,6 @@ Reply ONLY with valid JSON:
       imageBase64,
       imageMimeType: "image/png",
       prompt,
-      textModel: "gpt-4.1-mini",
       maxOutputTokens: 400,
     });
 

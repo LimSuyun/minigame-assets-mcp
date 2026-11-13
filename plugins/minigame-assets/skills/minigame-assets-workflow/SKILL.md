@@ -54,9 +54,9 @@ asset_generate_character_base
 | 2 | `asset_generate_execution_plan` | — | 엔진 감지 + 체크리스트 |
 | 3 | `asset_generate_character_base` | gpt-image-2 | 마젠타 크로마키 → 투명, `role` 파라미터 활용 |
 | 3.5 | `asset_generate_character_equipped` | gpt-image-2 edit | 장비 착용 베이스 합성 (선택) |
-| 4 | `asset_generate_weapons` | gpt-image-1 | 네이티브 투명 배경 |
+| 4 | `asset_generate_weapons` | gpt-image-2.6-flare | 네이티브 투명 배경 |
 | 5 | `asset_generate_sprite_sheet` | gpt-image-2 edit | **Sequential anchor+prev** 패턴 기본 (각 프레임이 anchor + 직전 프레임 두 reference 로 합성 → 디자인 동결 + 모션 연속성). 디폴트 `frames_per_action: 5`, 액션별 매트릭스 (idle:5, walk:6, run:6, jump:5, attack:5, hurt:5, die:6). 첫 프레임 자동 quality_check. `auto_compose_sheet: true` 기본 → `_sheet.{webp\|png}` 자동 생성. 옛 동작 원하면 `sequential_mode: "off"` |
-| 6 | `asset_generate_screen_background` / `_loading_screen` / `_lobby_screen` | gpt-image-2 | **spec-aware** — `target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용. parallax 레이어는 gpt-image-1 (네이티브 투명) |
+| 6 | `asset_generate_screen_background` / `_loading_screen` / `_lobby_screen` | gpt-image-2 | **spec-aware** — `target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용. parallax 레이어는 gpt-image-2.6-flare (네이티브 투명) |
 | 7 | `asset_generate_app_logo`, `asset_plan_thumbnail` → `asset_generate_thumbnail` | — | 마케팅 — **반드시 캐릭터·배경·타이틀 텍스트 PNG가 준비된 뒤** 호출. `character_image_paths` / `background_image_path` / `title_text_image_path` 를 함께 넘기면 재사용·일관성 보장 |
 | 8 | `asset_review`, `asset_validate`, `asset_list_missing`, `asset_generate_atlas_json` | — | 품질 검토 + Atlas |
 | 9 | `asset_approve` → `asset_deploy` | — | 승인된 마스터만 코드 경로로 리사이즈 복사 |
@@ -97,7 +97,7 @@ asset_generate_character_base
 
 - CONCEPT.md 의 `base_style_prompt` 는 모든 이미지 생성의 접두사 — 스타일·색상·질감을 영문으로 구체적으로 작성
 - 한국어/짧은 프롬프트만 있을 땐 각 도구의 `refine_prompt: true` 로 GPT-5.4-nano 확장 활성화
-- 이미지 생성에는 `OPENAI_API_KEY` (필수) / `GEMINI_API_KEY` (parallax·video 시 필요) 환경변수가 있어야 함
+- 이미지 생성에는 `OPENAI_API_KEY` (필수) 환경변수가 있어야 함
 - 컨셉 파일 경로는 `CONCEPT_FILE` (기본 `./.minigame-assets/game-concept.json`), `CONCEPT_MD_FILE` (기본 `./.minigame-assets/CONCEPT.md`) 환경변수로 오버라이드 가능
 
 ## 주제별 세부 스킬

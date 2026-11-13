@@ -29,7 +29,7 @@
    └─ asset_generate_character_equipped   ← 베이스 + 장비 합성 (선택)
 
 4. 무기
-   asset_generate_weapons                 ← 아이콘 일괄 (gpt-image-1, 투명)
+   asset_generate_weapons                 ← 아이콘 일괄 (gpt-image-2.6-flare, 투명)
 
 5. 스프라이트 시트 (1행 가로 스트립 기본)
    asset_generate_sprite_sheet            ← 액션 프레임 (gpt-image-2 edit)

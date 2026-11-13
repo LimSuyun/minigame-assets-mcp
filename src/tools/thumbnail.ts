@@ -367,11 +367,7 @@ Returns:
           : scenePrompt;
 
         // ── Step 5: OpenAI 호출 ──────────────────────────────────────────
-        const effectiveModel = (params.model ?? "gpt-image-2") as
-          | "gpt-image-2"
-          | "gpt-image-1.5"
-          | "gpt-image-1"
-          | "gpt-image-1-mini";
+        const effectiveModel = (params.model ?? "gpt-image-2");
 
         const editRefPaths: string[] = includeWordmark
           ? [...visualRefPaths, titleText!.path]

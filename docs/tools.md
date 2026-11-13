@@ -17,7 +17,7 @@
 | 도구 | 설명 |
 |---|---|
 | `asset_generate_image` | 에셋 타입 기반 자동 AI 선택 |
-| `asset_generate_image_openai` | OpenAI gpt-image-2 / gpt-image-1 계열 (기본 gpt-image-1-mini) |
+| `asset_generate_image_openai` | OpenAI GPT Image (기본 gpt-image-2.6-flare, 그 외 gpt-image-2.6-sunburst / 2.5-flare / 2.5-sunburst / gpt-image-2) |
 | `asset_generate_image_responses` | OpenAI Responses API (텍스트 모델 + 이미지 조합) |
 | `asset_batch_generate_images` | 최대 10개 일괄 생성 |
 | `asset_compare_models` | 여러 OpenAI 모델 A/B 비교 |
@@ -36,7 +36,7 @@
 | `asset_generate_sprite_sheet` | 액션 스프라이트 시트 (gpt-image-2 edit). **기본: 1행 가로 스트립** (`sheet_cols`로 grid 전환) |
 | `asset_generate_character_weapon_sprites` | 무기 장착 상태 스프라이트 일괄 |
 | `asset_generate_avatar_parts` | 아바타 커스터마이즈 파츠 |
-| `asset_generate_weapons` | 무기 아이콘 일괄 (gpt-image-1, 투명) |
+| `asset_generate_weapons` | 무기 아이콘 일괄 (gpt-image-2.6-flare, 투명) |
 
 ## 편집
 

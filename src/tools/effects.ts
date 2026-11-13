@@ -4,9 +4,9 @@
  * 이펙트 관련 에셋 생성 도구 모음.
  *
  * 도구 분류:
- *   - asset_generate_effect_sheet       : 이펙트 애니메이션 스프라이트 시트 (gpt-image-1)
+ *   - asset_generate_effect_sheet       : 이펙트 애니메이션 스프라이트 시트 (gpt-image-2.6-flare)
  *   - asset_generate_floating_text      : 플로팅 텍스트 스타일 PNG 세트 (Sharp SVG, AI 미사용)
- *   - asset_generate_status_effect_icons: 상태이상 아이콘 세트 (gpt-image-1)
+ *   - asset_generate_status_effect_icons: 상태이상 아이콘 세트 (gpt-image-2.6-flare)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,6 +26,7 @@ import { handleApiError } from "../utils/errors.js";
 import { writeOptimized } from "../utils/image-output.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset } from "../types.js";
+import { DEFAULT_OPENAI_IMAGE_MODEL } from "../models.js";
 
 // ─── 이펙트 Atlas JSON 타입 ────────────────────────────────────────────────────
 
@@ -199,7 +200,7 @@ export function registerEffectTools(server: McpServer): void {
       title: "Generate Effect Animation Sprite Sheet",
       description: `Generate an effect animation sprite sheet with atlas JSON for use in game engines.
 
-Each frame is individually generated using gpt-image-1 on a pure black (#000000) background,
+Each frame is individually generated using gpt-image-2.6-flare on a pure black (#000000) background,
 designed for additive blending in game engines (black = transparent in additive mode).
 
 Frames are composed into a grid layout, and an atlas JSON is generated with frame coordinates
@@ -342,7 +343,7 @@ Returns:
 
         // Register sheet as asset
         const sheetLatencyMs = sheetLatency.elapsed();
-        const sheetCost = buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", sheetLatencyMs);
+        const sheetCost = buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", "1024x1024", sheetLatencyMs);
         sheetCost.est_cost_usd = +(sheetCost.est_cost_usd * frameCount).toFixed(4);
         sheetCost.cost_formula = `${sheetCost.cost_formula} × ${frameCount} frames`;
 
@@ -533,7 +534,7 @@ Returns:
     "asset_generate_status_effect_icons",
     {
       title: "Generate Status Effect Icon Set",
-      description: `Generate status effect icons (buff/debuff) as transparent PNG images using gpt-image-1.
+      description: `Generate status effect icons (buff/debuff) as transparent PNG images using gpt-image-2.6-flare.
 
 Default status effects include: poison, burn, freeze, stun, slow, buff_atk, buff_def, debuff.
 You can pass custom effects with id, name, type, and description.
@@ -645,7 +646,7 @@ Returns:
                 effect_name: effect.name,
                 effect_type: effect.type,
                 icon_size: iconSize,
-                ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", iconLatencyMs),
+                ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", "1024x1024", iconLatencyMs),
               },
             };
             saveAssetToRegistry(asset, outputDir);

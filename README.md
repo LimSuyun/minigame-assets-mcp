@@ -1,7 +1,7 @@
 # Minigame Assets MCP
 
 Claude와 대화하면서 게임 에셋을 생성하는 MCP 서버.
-캐릭터·스프라이트·배경·UI·로고·썸네일·음악·영상을 그때그때 만들어 줍니다.
+캐릭터·스프라이트·배경·UI·로고·썸네일·음악을 그때그때 만들어 줍니다.
 
 ---
 
@@ -94,7 +94,7 @@ Claude에게 이렇게 요청하면 됩니다:
 
 - Node.js 18+
 - [Claude Code](https://claude.ai/code) CLI
-- [OpenAI API Key](https://platform.openai.com/api-keys) — 이미지·영상·비전
+- [OpenAI API Key](https://platform.openai.com/api-keys) — 이미지·비전
 
 ## 라이선스
 

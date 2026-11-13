@@ -112,10 +112,10 @@
 2. `asset_generate_sprite_sheet` — 각 액션별 프레임 생성 (gpt-image-2 edit, **Sequential anchor+prev** 패턴, 액션별 5+ 프레임 매트릭스, `chroma_key_bg: magenta` 권장)
 
 ### 무기/투사체 생성
-1. `asset_generate_weapons` — 투명 배경 아이콘 생성 (gpt-image-1, 네이티브 투명)
+1. `asset_generate_weapons` — 투명 배경 아이콘 생성 (gpt-image-2.6-flare, 네이티브 투명)
 
 ### 배경 생성
-1. `asset_generate_screen_background` — gpt-image-2, **spec-aware** (`target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 + sharp cover-crop). parallax 투명 레이어는 gpt-image-1 네이티브 투명
+1. `asset_generate_screen_background` — gpt-image-2, **spec-aware** (`target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 + sharp cover-crop). parallax 투명 레이어는 gpt-image-2.6-flare 네이티브 투명
 
 ### 마케팅 (Stage 6 — 마지막 단계)
 > 캐릭터·배경 PNG 가 모두 준비된 뒤 호출. 워드마크는 한 번 만들어 모든 마케팅 산출물에 재사용.

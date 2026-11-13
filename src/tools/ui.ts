@@ -5,8 +5,8 @@
  *
  * 도구 분류:
  *   - asset_generate_ui_structural : 코드 기반 (Sharp/SVG, NO AI) — 버튼/패널/프로그레스바/슬롯
- *   - asset_generate_ui_decorative : AI 기반 (gpt-image-1) — 장식적 아이콘/뱃지/엠블럼
- *   - asset_generate_button_set    : AI 기반 (gpt-image-1) — 비주얼 버튼 세트
+ *   - asset_generate_ui_decorative : AI 기반 (gpt-image-2.6-flare) — 장식적 아이콘/뱃지/엠블럼
+ *   - asset_generate_button_set    : AI 기반 (gpt-image-2.6-flare) — 비주얼 버튼 세트
  *   - asset_generate_hud_set       : AI 기반 — HUD 요소
  *   - asset_generate_icon_set      : AI 기반 — 아이콘 세트
  *   - asset_generate_screen_background : AI 기반 (gpt-image-2) — 화면 배경
@@ -44,7 +44,7 @@ type OpenAISize = "1024x1024" | "1024x1536" | "1536x1024" | "1792x1024" | "1024x
 function pickOpenAISizeForRatio(targetW: number, targetH: number): OpenAISize {
   const r = targetW / targetH;
   // gpt-image-2 지원 사이즈: 1024x1024, 1024x1536(2:3), 1536x1024(3:2)
-  // 더 와이드/세로는 1792x1024, 1024x1792 (gpt-image-1 계열)
+  // 더 와이드/세로는 1792x1024, 1024x1792 (커스텀 사이즈 — 16의 배수, 종횡비 1:3~3:1)
   const candidates: Array<{ size: OpenAISize; w: number; h: number }> = [
     { size: "1024x1024", w: 1024, h: 1024 },
     { size: "1024x1536", w: 1024, h: 1536 },
@@ -315,7 +315,7 @@ interface GenerateResult {
 async function generateImage(
   prompt: string,
   size: string,
-  openaiModel?: "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+  openaiModel?: string,
   background?: "transparent" | "opaque" | "auto",
 ): Promise<GenerateResult> {
   const validSizes = ["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536"];
@@ -499,7 +499,7 @@ Returns:
     "asset_generate_ui_decorative",
     {
       title: "Generate Decorative UI Elements (AI-Based)",
-      description: `Generate decorative UI elements using AI (gpt-image-1 for transparent PNG).
+      description: `Generate decorative UI elements using AI (gpt-image-2.6-flare for transparent PNG).
 Decorative elements include: icons, badges, emblems, decorations, ornate frames, seals, medals.
 
 Contrast with asset_generate_ui_structural which is code-generated.
@@ -615,7 +615,7 @@ Returns:
     "asset_generate_button_set",
     {
       title: "Generate UI Button Set (AI)",
-      description: `Generate a complete UI button set with multiple states using AI (gpt-image-1).
+      description: `Generate a complete UI button set with multiple states using AI (gpt-image-2.6-flare).
 For code-generated buttons (precise pixel art), use asset_generate_ui_structural instead.
 
 Args:
@@ -993,11 +993,7 @@ Returns:
 
         const results: Array<{ layer: string; file_path: string; success: boolean; error?: string; target_size?: string; size_reason?: string }> = [];
 
-        const openaiModel = (params.model ?? "gpt-image-2") as
-          | "gpt-image-2"
-          | "gpt-image-1.5"
-          | "gpt-image-1"
-          | "gpt-image-1-mini";
+        const openaiModel = (params.model ?? "gpt-image-2");
 
         if (params.style === "static") {
           try {
@@ -1325,8 +1321,7 @@ Returns:
           refPaths.push(params.hero_image_path);
         }
 
-        const effectiveModel = (params.model ?? "gpt-image-2") as
-          | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+        const effectiveModel = (params.model ?? "gpt-image-2");
 
         const size = params.aspect_ratio === "9:16" ? "1024x1536"
           : params.aspect_ratio === "1:1" ? "1024x1024"
@@ -1492,8 +1487,7 @@ Returns:
           refPaths.push(params.hero_image_path);
         }
 
-        const effectiveModel = (params.model ?? "gpt-image-2") as
-          | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+        const effectiveModel = (params.model ?? "gpt-image-2");
 
         const size = params.aspect_ratio === "9:16" ? "1024x1536"
           : params.aspect_ratio === "1:1" ? "1024x1024"

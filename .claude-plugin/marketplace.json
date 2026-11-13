@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "minigame-assets",
-      "description": "Generate game assets (sprites, characters, weapons, backgrounds, UI, logos, thumbnails, music, video) with a CONCEPT-first AI workflow. Bundles the minigame-assets-mcp server, 3 slash commands, and an auto-triggered workflow skill.",
+      "description": "Generate game assets (sprites, characters, weapons, backgrounds, UI, logos, thumbnails, music) with a CONCEPT-first AI workflow. Bundles the minigame-assets-mcp server, 3 slash commands, and an auto-triggered workflow skill.",
       "category": "development",
       "source": "./plugins/minigame-assets",
       "homepage": "https://github.com/LimSuyun/minigame-assets-mcp"

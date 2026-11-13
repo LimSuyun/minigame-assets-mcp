@@ -10,6 +10,7 @@ import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset } from "../types.js";
+import { DEFAULT_OPENAI_IMAGE_MODEL } from "../models.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -222,7 +223,7 @@ Output sizes:
 
 Processing:
   1. If key_visual_path is provided → composite it over a generated/plain background
-  2. Otherwise → generate 1536×1024 image with gpt-image-1, then resize to 1024×500
+  2. Otherwise → generate 1536×1024 image with gpt-image-2.6-flare, then resize to 1024×500
 
 Args:
   - platform: Target store platform
@@ -326,7 +327,7 @@ Args:
             width: BANNER_WIDTH,
             height: BANNER_HEIGHT,
             game_name: params.game_name,
-            ...buildCostTelemetry("gpt-image-1-mini", "high", "1536x1024", bannerLatencyMs),
+            ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "high", "1536x1024", bannerLatencyMs),
           },
         };
         saveAssetToRegistry(asset, outputDir);

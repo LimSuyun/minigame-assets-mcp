@@ -31,6 +31,7 @@ import { editImageOpenAI } from "../services/openai.js";
 import { safeRefinePrompt, type PromptTargetModel } from "../services/gpt5-prompt.js";
 import { startLatencyTracker, buildCostTelemetry, buildEditCostTelemetry } from "../utils/cost-tracking.js";
 import type { GeneratedAsset } from "../types.js";
+import { supportsNativeTransparency } from "../models.js";
 
 // ─── 기본 액션 세트 ──────────────────────────────────────────────────────────
 
@@ -741,15 +742,15 @@ to create action variants using gpt-image-2 image editing (preserving the origin
 
 gpt-image-2는 투명 배경을 지원하지 않으므로 내부적으로 마젠타(#FF00FF) 배경 위에 생성 후
 크로마키 제거(residue 패스 포함) → 투명 PNG로 저장됩니다. 네이티브 투명이 필요하면
-\`model\`에 \`gpt-image-1\` 계열을 명시하세요 (예: "gpt-image-1", "gpt-image-1-mini").
+\`model\`에 네이티브 투명 지원 모델을 명시하세요 (예: "gpt-image-2.6-flare", "gpt-image-2.6-sunburst").
 
-**Performance note**: gpt-image-2 high-quality는 ~90~120초 소요 (gpt-image-1 ~40초 대비 2~3× 느림).
+**Performance note**: gpt-image-2 high-quality는 ~90~120초 소요 (gpt-image-2.6-flare ~10초 대비 훨씬 느림).
 베이스는 캐릭터당 1회만 생성하므로 실용적이며, 디테일 품질 향상이 큰 편.
 
 Args:
   - character_name (string): Identifier for this character (used in file names)
   - description (string): Detailed character description (appearance, clothing, style, etc.)
-  - model (string, optional): Model override. Defaults to "gpt-image-2". Alternatives: "gpt-image-1", "gpt-image-1-mini" (네이티브 투명), "gpt-image-1.5"
+  - model (string, optional): Model override. Defaults to "gpt-image-2". Alternatives: "gpt-image-2.6-flare", "gpt-image-2.6-sunburst" (네이티브 투명), "gpt-image-2.5-flare"
   - size (string, optional): For OpenAI — "1024x1024" (default), "1024x1792"
   - aspect_ratio (string, optional): "1:1" (default) or "3:4"
   - chroma_key_bg (string, optional): 크로마키 색상 override. gpt-image-2에서는 미지정 시 "magenta" 자동 적용.
@@ -766,12 +767,12 @@ Returns:
         description: z.string().min(10).max(3000).describe("Detailed character appearance description"),
         role: z.enum(["player", "enemy", "monster", "npc", "generic"]).default("generic")
           .describe("캐릭터 역할. player(주인공)·enemy(인간형 적)·monster(생물/괴수)·npc(주변 캐릭터)에 맞는 실루엣·컬러팔레트·디테일 가이던스 자동 주입. generic은 중립."),
-        model: z.string().optional().describe("Model override. Default: gpt-image-2 (최고 품질, 마젠타 크로마키 자동 적용). 대안: gpt-image-1, gpt-image-1-mini (네이티브 투명, 빠름) | gpt-image-1.5"),
+        model: z.string().optional().describe("Model override. Default: gpt-image-2 (최고 품질, 마젠타 크로마키 자동 적용). 대안: gpt-image-2.6-flare, gpt-image-2.6-sunburst (네이티브 투명, 빠름). 종료된 gpt-image-1 계열 ID는 자동 대체됨"),
         size: z.enum(["1024x1024", "1024x1792", "1536x1024", "1024x1536"]).default("1024x1024").describe("Image size (OpenAI only)"),
         aspect_ratio: z.enum(["1:1", "3:4"]).default("1:1").describe("Aspect ratio"),
-        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Ignored when using gpt-image-1 native transparent or any chroma_key_bg."),
+        bg_threshold: z.number().int().min(0).max(255).default(240).describe("White background removal threshold (0-255). Ignored when using native transparent or any chroma_key_bg."),
         chroma_key_bg: z.enum(["magenta", "lime", "cyan", "blue"]).optional()
-          .describe("Chroma key background color override. gpt-image-2 기본 경로는 'magenta' 자동 적용(residue 패스로 내부 포켓까지 제거). gpt-image-1 계열은 미지정 시 네이티브 투명."),
+          .describe("Chroma key background color override. gpt-image-2 기본 경로는 'magenta' 자동 적용(residue 패스로 내부 포켓까지 제거). 네이티브 투명 지원 모델(gpt-image-2.5/2.6)은 미지정 시 네이티브 투명."),
         refine_prompt: z.boolean().default(false)
           .describe("GPT-5(기본: gpt-5.4-nano)로 description을 상세 영문 프롬프트로 확장 후 이미지 생성. 짧은 한국어 입력이나 디테일이 부족한 경우 권장. 추가 지연 ~3초 + 소량 토큰 비용. 기본: false"),
         use_concept: z.boolean().default(true).describe("Inject game concept into prompt"),
@@ -793,9 +794,9 @@ Returns:
         const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
 
         // 기본 모델: gpt-image-2 (투명 미지원 → 마젠타 크로마키 자동 적용).
-        // 사용자가 gpt-image-1 계열을 명시하면 네이티브 투명 경로 유지.
+        // 사용자가 네이티브 투명 지원 모델(gpt-image-2.5/2.6)을 명시하면 네이티브 투명 경로 유지.
         const effectiveModel = params.model ?? "gpt-image-2";
-        const supportsNativeTransparent = effectiveModel.startsWith("gpt-image-1");
+        const supportsNativeTransparent = supportsNativeTransparency(effectiveModel);
 
         // gpt-image-2는 투명 미지원이라 chroma_key_bg 미지정 시 magenta 자동 적용.
         // 그러면 프롬프트에 magenta 배경 지시어가 들어가고 removeBackground(chromaKey)로 제거됨.
@@ -827,21 +828,17 @@ Returns:
 
         const r = await generateImageOpenAI({
             prompt,
-            model: effectiveModel as
-              | "gpt-image-2"
-              | "gpt-image-1.5"
-              | "gpt-image-1"
-              | "gpt-image-1-mini",
+            model: effectiveModel,
             size: params.size,
             quality: "high",
             // gpt-image-2는 resolveBackground shim이 "auto"로 자동 강등함.
-            // gpt-image-1 계열은 그대로 "transparent" 전송됨.
+            // 네이티브 투명 지원 모델은 그대로 "transparent" 전송됨.
             background: "transparent",
         });
         base64 = r.base64;
         mimeType = r.mimeType;
 
-        // gpt-image-1 계열만 네이티브 투명 PNG 반환 → 후처리 생략.
+        // 네이티브 투명 지원 모델만 투명 PNG 반환 → 후처리 생략.
         // gpt-image-2는 chromaKeyColor(기본 magenta) 경로로 크로마키 제거 + residue 패스.
         let processedBuffer: Buffer;
         let processedBase64: string;
@@ -1024,8 +1021,7 @@ Returns:
           `${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
         const refPaths: string[] = [params.base_character_path, ...(params.equipment_image_paths ?? [])];
-        const effectiveModel = (params.model ?? "gpt-image-2") as
-          | "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini";
+        const effectiveModel = (params.model ?? "gpt-image-2");
 
         // edit API 호출
         const editResult = await editImageOpenAI({
@@ -1179,7 +1175,7 @@ Args:
       composer는 4096px 한도 초과 시 자동으로 그리드로 재배치하므로 1행 스트립을
       강제하려면 sheet_cols=N을 넣더라도 한도 초과 시 자동 재배치됨.
   - frame_padding (number, optional): Padding around each frame (default: 20)
-  - chroma_key_bg (string, optional): gpt-image-2 기본 경로는 'magenta' 자동 적용 (asset_generate_character_base와 동일). gpt-image-1 계열은 미지정 시 네이티브 투명.
+  - chroma_key_bg (string, optional): gpt-image-2 기본 경로는 'magenta' 자동 적용 (asset_generate_character_base와 동일). 네이티브 투명 지원 모델(gpt-image-2.5/2.6)은 미지정 시 네이티브 투명.
   - output_dir (string, optional)
 
 Returns:
@@ -1219,7 +1215,7 @@ Returns:
         custom_action_prompts: z.record(z.string()).optional()
           .describe("Override edit prompts per action: { action_name: edit_prompt } (merges with prompt_file). sequential_mode 에서는 첫 프레임이든 직전+anchor 컨텍스트든 동일하게 적용됩니다."),
         edit_model: z.string().optional()
-          .describe("OpenAI model for image editing (default: gpt-image-2). gpt-image-1 계열도 사용 가능하나 gpt-image-2가 품질 최고."),
+          .describe("OpenAI model for image editing (default: gpt-image-2). gpt-image-2.6-sunburst / gpt-image-2.6-flare 도 사용 가능 (네이티브 투명)."),
         export_formats: z.array(z.enum(["individual", "phaser", "cocos", "unity", "godot"]))
           .default(["individual", "phaser"])
           .describe("Engine export formats: phaser / cocos / unity / godot. 기본은 individual + phaser atlas json. Unity 사용자는 'unity', Godot 4 사용자는 'godot' 추가 (.tres SpriteFrames 생성)."),
@@ -1233,11 +1229,11 @@ Returns:
           .describe("중간 배경색 override. gpt-image-2 기본 경로는 'magenta' 자동 적용(asset_generate_character_base와 동일). " +
             "외곽선으로 닫힌 포켓(겨드랑이 등) 잔류를 residue 패스로 제거. " +
             "흰색 flood-fill은 흰 캐릭터(토끼·흰 의상 등)에서 배경/캐릭터 구분 불가. " +
-            "gpt-image-1 계열은 네이티브 투명을 지원하므로 미지정 시 chroma_key 미사용."),
+            "gpt-image-2.5/2.6 계열은 네이티브 투명을 지원하므로 미지정 시 chroma_key 미사용."),
         bg_threshold: z.number().int().min(0).max(255).default(240)
           .describe("White background removal threshold (0-255). Used only when chroma_key_bg is not set."),
         quality_check: z.boolean().default(false)
-          .describe("각 프레임을 Claude 비전으로 품질 검증. 미달 시 OpenAI gpt-image-1로 자동 재생성. 기본: false"),
+          .describe("각 프레임을 Claude 비전으로 품질 검증. 미달 시 기본 이미지 모델로 자동 재생성. 기본: false"),
         character_hint: z.string().max(500).optional()
           .describe("품질 검증에 사용할 캐릭터 설명 (예: 'green alien soldier in black armor with baton')"),
         output_dir: z.string().optional().describe("Output directory"),
@@ -1351,9 +1347,9 @@ Returns:
 
       // 크로마키 배경 결정.
       // asset_generate_character_base와 동일하게: gpt-image-2는 투명 배경 미지원이므로
-      // chroma_key_bg 미지정 시 magenta를 자동 적용한다. gpt-image-1 계열은 네이티브
+      // chroma_key_bg 미지정 시 magenta를 자동 적용한다. gpt-image-2.5/2.6 계열은 네이티브
       // 투명을 지원하므로 chroma_key_bg 미지정 시 흰 배경 경로를 유지한다.
-      const supportsNativeTransparentEdit = effectiveEditModel.startsWith("gpt-image-1");
+      const supportsNativeTransparentEdit = supportsNativeTransparency(effectiveEditModel);
       const effectiveChromaKey: keyof typeof CHROMA_KEY_COLORS | undefined =
         params.chroma_key_bg ?? (supportsNativeTransparentEdit ? undefined : "magenta");
       const sheetChromaKeyColor = effectiveChromaKey
@@ -1472,12 +1468,9 @@ Returns:
           const result = await editImageOpenAI({
             imagePaths,
             prompt,
-            model: effectiveEditModel as
-              | "gpt-image-2"
-              | "gpt-image-1.5"
-              | "gpt-image-1"
-              | "gpt-image-1-mini",
+            model: effectiveEditModel,
             size: "1024x1024",
+            background: sheetChromaKeyColor ? "opaque" : undefined,
           });
 
           // 배경 제거 (크로마키 또는 순백 flood-fill)
@@ -1538,6 +1531,7 @@ Returns:
                   imagePath: tmpEditPath,
                   prompt: fallbackPrompt,
                   size: "1024x1024",
+                  background: sheetChromaKeyColor ? "opaque" : undefined,
                 });
                 if (sheetChromaKeyColor) {
                   processedBuffer = await processFrameBase64Chroma(
@@ -1717,12 +1711,9 @@ Returns:
             const gridResult = await editImageOpenAI({
               imagePaths: [tmpEditPath],
               prompt: gridPrompt,
-              model: effectiveEditModel as
-                | "gpt-image-2"
-                | "gpt-image-1.5"
-                | "gpt-image-1"
-                | "gpt-image-1-mini",
+              model: effectiveEditModel,
               size: "1024x1024",
+              background: sheetChromaKeyColor ? "opaque" : undefined,
             });
             gridBase64 = gridResult.base64;
           } catch (error) {
@@ -2124,7 +2115,7 @@ Returns:
                   const editResult = await editImageOpenAI({
                     imagePath: tmpWeaponBase,
                     prompt: editPrompt,
-                    model: params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+                    model: params.edit_model,
                   });
 
                   // 배경 제거: 크로마키 모드 또는 순백 flood-fill

@@ -5,7 +5,7 @@ import * as path from "path";
 import { DEFAULT_OUTPUT_DIR, DEFAULT_CONCEPT_FILE, ASSET_TYPES, NO_PADDING_TYPES, CLEAN_LINE_STYLE_DEFAULT } from "../constants.js";
 import { generateImageOpenAI, generateImageWithResponses } from "../services/openai.js";
 import { safeRefinePrompt, type PromptTargetModel, type PromptAssetType } from "../services/gpt5-prompt.js";
-import { OPENAI_IMAGE_MODELS } from "../constants.js";
+import { DEFAULT_OPENAI_IMAGE_MODEL, RESPONSES_TEXT_MODELS, DEFAULT_RESPONSES_TEXT_MODEL, imageModelSchema, resolveImageModel } from "../models.js";
 import {
   buildAssetPath,
   generateFileName,
@@ -45,12 +45,14 @@ export function registerImageTools(server: McpServer): void {
     "asset_generate_image_openai",
     {
       title: "Generate Game Asset Image (OpenAI)",
-      description: `Generate a game asset image using OpenAI gpt-image-1-mini (default — 2D 미니게임 저비용 최적).
+      description: `Generate a game asset image using OpenAI GPT Image (default: gpt-image-2.6-flare — 범용, 투명 배경 네이티브 지원).
 
 **모델 선택 정책 (범용 이미지 도구):**
-- 기본값 gpt-image-1-mini — 단순 치비/2D 에셋, 투명 배경 네이티브 지원, 저비용
-- 고디테일·텍스트·4K가 필요한 경우 model: "gpt-image-2" 명시 (투명 배경 미지원 → auto로 자동 강등됨)
-- 중간 품질이 필요하면 model: "gpt-image-1.5"
+- 기본값 gpt-image-2.6-flare — 빠른 범용 생성, 투명 배경 네이티브 지원 (OPENAI_IMAGE_MODEL 환경변수로 교체 가능)
+- 편집 정밀도가 중요하면 model: "gpt-image-2.6-sunburst" (느림)
+- 비용 최우선이면 model: "gpt-image-2.5-flare" (투명 배경 요청이 간헐적으로 무시될 수 있음)
+- gpt-image-2 는 투명 배경 미지원(auto로 자동 강등)이며 2027-02-10 지원 종료 예정
+- 지원 종료된 gpt-image-1 / gpt-image-1-mini / gpt-image-1.5 를 지정하면 gpt-image-2.6-flare 로 자동 대체됩니다
 ※ 캐릭터/썸네일/로딩·로비 화면 등 특수 목적 도구는 내부적으로 gpt-image-2를 기본값으로 사용합니다.
 
 **CONCEPT.md 우선 확인:** 에셋 생성 요청 시 .minigame-assets/CONCEPT.md 파일이 있는지 확인하세요.
@@ -62,7 +64,7 @@ Args:
   - prompt (string): Description of the image to generate
   - asset_type (string): Type of game asset (character, sprite, background, ui_element, icon, tile, effect, logo, other)
   - size (string, optional): Image size - "1024x1024" (default), "1792x1024" (landscape), "1024x1792" (portrait)
-  - quality (string, optional): "auto" (default) | "low" | "medium" | "high"
+  - quality (string, optional): "medium" (default) | "low" | "high" | "auto" (gpt-image-2.5/2.6 계열에서 auto 는 medium 으로 처리)
   - use_concept (boolean, optional): Whether to inject the current game concept into the prompt (default: true)
   - concept_file (string, optional): Path to game concept file (default: ./.minigame-assets/game-concept.json)
   - output_dir (string, optional): Output directory for the asset (default: ./.minigame-assets)
@@ -72,9 +74,9 @@ Returns:
       inputSchema: z.object({
         prompt: z.string().min(1).max(4000).describe("Description of the image to generate"),
         asset_type: z.enum(ASSET_TYPES).default("sprite").describe("Type of game asset"),
-        model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default, 2D 미니게임 최적) | gpt-image-1 | gpt-image-1.5 (고디테일) | gpt-image-2 (4K·다국어 텍스트, 투명 배경 미지원 — transparent 요청 시 auto로 자동 강등)"),
+        model: imageModelSchema.optional().describe("OpenAI image model (default: gpt-image-2.6-flare): gpt-image-2.6-flare | gpt-image-2.6-sunburst (편집 정밀) | gpt-image-2.5-flare (저비용) | gpt-image-2.5-sunburst | gpt-image-2 (투명 배경 미지원 — transparent 요청 시 auto로 자동 강등, 2027-02-10 종료 예정). 종료된 gpt-image-1 계열 ID는 자동 대체됨"),
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).default("1024x1024").describe("Generation size"),
-        quality: z.enum(["low", "medium", "high", "auto"]).default("auto").describe("Generation quality"),
+        quality: z.enum(["low", "medium", "high", "auto"]).default("medium").describe("Generation quality"),
         background: z.enum(["transparent", "opaque", "auto"]).default("transparent").describe("Background type: transparent outputs native RGBA PNG (gpt-image-2는 미지원 → auto로 자동 강등, 크로마키 후처리 필요)"),
         refine_prompt: z.boolean().default(false).describe("GPT-5(기본: gpt-5.4-nano)로 prompt를 상세 영문으로 확장 후 이미지 생성. 짧거나 한국어 입력에 유용. 기본: false"),
         use_concept: z.boolean().default(true).describe("Inject game concept into prompt"),
@@ -93,12 +95,13 @@ Returns:
         const outputDir = params.output_dir || DEFAULT_OUTPUT_DIR;
         const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
         const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
+        const usedModel = resolveImageModel(params.model);
 
         // GPT-5 프롬프트 리파인 (opt-in)
         const { text: userPrompt, refined: refinedByGPT5 } = await safeRefinePrompt({
           enabled: params.refine_prompt,
           text: params.prompt,
-          targetModel: params.model as PromptTargetModel,
+          targetModel: usedModel as PromptTargetModel,
           assetType: params.asset_type as PromptAssetType,
           conceptHint,
           toolName: "image_openai",
@@ -109,7 +112,7 @@ Returns:
         const latency = startLatencyTracker();
         const result = await generateImageOpenAI({
           prompt: enrichedPrompt,
-          model: params.model,
+          model: usedModel,
           size: params.size,
           quality: params.quality,
           background: params.background,
@@ -138,7 +141,7 @@ Returns:
             quality: params.quality,
             refined_by_gpt5: refinedByGPT5,
             ...(refinedByGPT5 ? { refined_prompt: userPrompt } : {}),
-            ...buildCostTelemetry(params.model, params.quality, params.size, latency.elapsed()),
+            ...buildCostTelemetry(usedModel, params.quality, params.size, latency.elapsed()),
           },
         };
 
@@ -184,8 +187,7 @@ Returns:
 Useful for generating a complete set of initial assets for a game (characters, backgrounds, UI elements, etc.).
 
 **기본 프로바이더 규칙 (v2.0+):**
-- 모든 에셋 타입 기본 OpenAI (gpt-image-1-mini 저비용 / 필요 시 gpt-image-2 고품질).
-- 배경도 gpt-image-2의 디테일/텍스트 렌더링이 우수합니다.
+- 모든 에셋 타입 기본 OpenAI (기본 gpt-image-2.6-flare / 편집 정밀도는 gpt-image-2.6-sunburst / 저비용은 gpt-image-2.5-flare).
 
 Args:
   - specs (array): List of image specs, each with: prompt, asset_type, model (optional)
@@ -200,7 +202,7 @@ Returns:
         specs: z.array(z.object({
           prompt: z.string().min(1).max(4000).describe("Image description"),
           asset_type: z.enum(ASSET_TYPES).describe("Asset type"),
-          model: z.enum(OPENAI_IMAGE_MODELS).default("gpt-image-1-mini").describe("OpenAI image model: gpt-image-1-mini (default) | gpt-image-1 | gpt-image-1.5 (고디테일) | gpt-image-2 (4K·다국어 텍스트, 투명 배경 미지원)"),
+          model: imageModelSchema.optional().describe("OpenAI image model (default: gpt-image-2.6-flare): gpt-image-2.6-flare | gpt-image-2.6-sunburst | gpt-image-2.5-flare (저비용) | gpt-image-2.5-sunburst | gpt-image-2 (투명 배경 미지원). 종료된 gpt-image-1 계열 ID는 자동 대체됨"),
           size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"]).optional().describe("Size (OpenAI only)"),
           quality: z.enum(["low", "medium", "high", "auto"]).optional().describe("Quality (default: medium)"),
           aspect_ratio: z.enum(["1:1", "3:4", "4:3", "9:16", "16:9"]).optional().describe("Aspect ratio"),
@@ -242,13 +244,13 @@ Returns:
           const spec = params.specs[i];
           const styledPrompt = buildStyledPrompt(spec.prompt, baseStyle);
           const finalPrompt = buildEnrichedPrompt(styledPrompt, spec.asset_type, conceptHint);
-          const model = spec.model ?? "gpt-image-1-mini";
+          const model = resolveImageModel(spec.model);
 
           try {
             const latency = startLatencyTracker();
             const r = await generateImageOpenAI({
               prompt: finalPrompt,
-              model: spec.model,
+              model,
               size: spec.size,
               quality: spec.quality ?? "medium",
               background: "transparent",
@@ -334,7 +336,7 @@ Returns:
       description: `Generate a single game asset image, automatically selecting the AI provider based on asset_type.
 
 **기본 프로바이더 규칙 (v2.0+):**
-- 모든 에셋 타입 기본 OpenAI (gpt-image-* 계열). 배경도 gpt-image-2 디테일이 우수.
+- 모든 에셋 타입 기본 OpenAI (gpt-image-* 계열, 기본 gpt-image-2.6-flare).
 
 provider 파라미터로 명시적으로 지정하면 기본값을 덮어씁니다.
 
@@ -369,12 +371,13 @@ Returns:
         const conceptFile = params.concept_file || DEFAULT_CONCEPT_FILE;
         const conceptHint = params.use_concept ? loadConceptHint(conceptFile) : "";
 
-        const usedModel = "gpt-image-1-mini";
+        const usedModel = DEFAULT_OPENAI_IMAGE_MODEL;
 
         const latency = startLatencyTracker();
         const enrichedPrompt = buildEnrichedPrompt(params.prompt, params.asset_type, conceptHint);
         const r = await generateImageOpenAI({
           prompt: enrichedPrompt,
+          model: usedModel,
           quality: "medium",
           background: "transparent",
         });
@@ -436,7 +439,7 @@ Returns:
       description: `Generate or edit a game asset image using the OpenAI Responses API with the image_generation tool.
 
 This is the newer API approach:
-- Uses a text-capable model (gpt-4.1 etc.) + image_generation tool
+- Uses a text-capable model (gpt-4.1 etc.) + image_generation tool (image model: default gpt-image-2.6-flare)
 - action "generate": force new image creation
 - action "edit": edit/modify input images (inputImagePaths required)
 - action "auto": model decides based on context (default)
@@ -465,7 +468,7 @@ Returns:
           .describe("generate: force new | edit: modify input images | auto: model decides"),
         input_image_paths: z.array(z.string()).optional()
           .describe("Input image file paths (required for edit action)"),
-        text_model: z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"]).default("gpt-4.1")
+        text_model: z.enum(RESPONSES_TEXT_MODELS).default(DEFAULT_RESPONSES_TEXT_MODEL)
           .describe("Text reasoning model for the Responses API"),
         size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).default("1024x1024")
           .describe("Output image size"),
@@ -516,7 +519,8 @@ Returns:
             size: params.size,
             quality: params.quality,
             input_images: params.input_image_paths,
-            ...buildCostTelemetry(params.text_model, params.quality, params.size, latency.elapsed()),
+            image_model: DEFAULT_OPENAI_IMAGE_MODEL,
+            ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, params.quality, params.size, latency.elapsed()),
           },
         };
         saveAssetToRegistry(asset, outputDir);
@@ -547,10 +551,11 @@ Returns:
       description: `동일한 프롬프트로 여러 OpenAI 이미지 모델을 병렬 실행해 결과를 비교합니다.
 
 **비교 가능 모델:**
-- gpt-image-2   — 2026-04-21 최신, 4K/다국어 텍스트, 투명 배경 미지원 (수동 선택)
-- gpt-image-1.5 — 4× 빠름, 20% 저렴 (기본 포함)
-- gpt-image-1   — 표준 품질/가격 (기본 포함)
-- gpt-image-1-mini — 가장 저렴 (기본 포함)
+- gpt-image-2.6-flare    — 기본 모델, 빠른 범용 생성 (기본 포함)
+- gpt-image-2.6-sunburst — 편집 정밀도 우선, 느림 (기본 포함)
+- gpt-image-2.5-flare    — 가장 저렴 (기본 포함)
+- gpt-image-2.5-sunburst — (수동 선택)
+- gpt-image-2            — 투명 배경 미지원, 2027-02-10 종료 예정 (수동 선택)
 
 **반환값:** 각 모델의 생성 시간(ms), 파일 크기(KB), 저장 경로, 성공/실패 여부.
 같은 배치의 결과는 동일한 batch_id를 공유하므로 파일 탐색기에서 나란히 확인 가능.
@@ -571,8 +576,8 @@ Returns:
       inputSchema: z.object({
         prompt: z.string().min(1).max(4000)
           .describe("비교할 이미지 프롬프트"),
-        models: z.array(z.enum(OPENAI_IMAGE_MODELS))
-          .default(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"])
+        models: z.array(imageModelSchema)
+          .default(["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-flare"])
           .describe("테스트할 OpenAI 모델 목록"),
         size: z.enum(["1024x1024", "1536x1024", "1024x1536"]).default("1024x1024")
           .describe("출력 이미지 크기"),

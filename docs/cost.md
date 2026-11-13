@@ -5,10 +5,10 @@ AI를 호출하는 모든 이미지/스프라이트/UI/환경/마케팅/튜토�
 
 ```json
 "metadata": {
-  "model": "gpt-image-2",
-  "latency_ms": 12843,
-  "est_cost_usd": 0.04,
-  "cost_formula": "gpt-image-2 × high × size-mult 1 = $0.04 × 1"
+  "model": "gpt-image-2.6-flare",
+  "latency_ms": 8737,
+  "est_cost_usd": 0.043,
+  "cost_formula": "gpt-image-2.6-flare × medium × size-mult 1 = $0.043 × 1"
 }
 ```
 
@@ -19,13 +19,18 @@ AI를 호출하는 모든 이미지/스프라이트/UI/환경/마케팅/튜토�
 
 ## 대략적 단가 참고
 
-| 모델 | 한 장 기준 |
+| 모델 | 1024×1024 한 장 (low / medium / high) |
 |---|---|
-| `gpt-image-1-mini` | 저비용 (2D 치비·단순 에셋 기본) |
-| `gpt-image-1` | 중간 |
-| `gpt-image-1.5` | 중상 |
-| `gpt-image-2` | 상 (고디테일·텍스트·4K) |
+| `gpt-image-2.6-flare` (기본) | \$0.025 / \$0.043 / \$0.053 |
+| `gpt-image-2.6-sunburst` (편집 정밀) | flare 와 동일 가정 (low 만 실측) |
+| `gpt-image-2.5-flare` (저비용) | \$0.006 / \$0.013 / \$0.053 |
+| `gpt-image-2` (특수 목적 파이프라인, 2027-02-10 종료 예정) | \$0.006 / \$0.053 / \$0.211 |
 | `refine_prompt` (GPT-5.4-nano) | ~\$0.001 / 호출 |
 | Vision QC (gpt-4.1-mini) | ~\$0.001~0.005 / 호출 |
+
+- 위 값은 2026-11-12 실측 출력 토큰 × \$30/1M 환산치입니다 (입력 토큰 비용 제외).
+- gpt-image-2.5/2.6 계열은 `quality` 를 생략하거나 `auto` 로 보내면 medium 의 약 4배 토큰이 나오므로, 서버가 미지정·`auto` 를 `medium` 으로 고정합니다.
+- `gpt-image-1` / `gpt-image-1-mini` / `gpt-image-1.5` 는 OpenAI 지원 종료 모델입니다. 지정하면 `gpt-image-2.6-flare` 로 자동 대체됩니다.
+- 기본 모델은 `OPENAI_IMAGE_MODEL` 환경변수로 바꿀 수 있습니다 (비용 우선이면 `gpt-image-2.5-flare` — 단, 투명 배경 요청이 간헐적으로 무시됨).
 
 정확한 금액은 각 플랫폼의 가격 페이지를 참고하세요.

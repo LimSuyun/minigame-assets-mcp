@@ -3,7 +3,7 @@
  *
  * 도구 목록:
  *  - asset_generate_execution_plan : CONCEPT.md + 게임 엔진 분석 → EXECUTION-PLAN.md
- *  - asset_generate_weapons        : 무기 목록을 gpt-image-1 투명 배경으로 일괄 생성
+ *  - asset_generate_weapons        : 무기 목록을 gpt-image-2.6-flare 투명 배경으로 일괄 생성
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -146,7 +146,7 @@ function buildExecutionPlanMd(
 
   const weaponSteps = concept.weapons.length > 0
     ? concept.weapons.map((w, i) =>
-        `- [ ] **${i + 1}. ${w.name} (${w.id})**: \`asset_generate_weapons\` — gpt-image-1, transparent background`
+        `- [ ] **${i + 1}. ${w.name} (${w.id})**: \`asset_generate_weapons\` — gpt-image-2.6-flare, transparent background`
       ).join("\n")
     : "- 무기 없음";
 
@@ -201,7 +201,7 @@ ${charSteps}
 
 ### Step 3. 무기 생성
 
-> **프로세스**: gpt-image-1로 투명 배경 아이콘 생성
+> **프로세스**: gpt-image-2.6-flare로 투명 배경 아이콘 생성
 
 ${weaponSteps}
 
@@ -230,7 +230,7 @@ ${bgSteps}
 |------|------|
 | \`asset_generate_character_base\` | 캐릭터 정면 베이스 생성 (gpt-image-2, 마젠타 크로마키 → 투명) |
 | \`asset_generate_sprite_sheet\` | 캐릭터 액션 스프라이트 시트 (gpt-image-2) |
-| \`asset_generate_weapons\` | 무기 아이콘 일괄 생성 (gpt-image-1, 투명) |
+| \`asset_generate_weapons\` | 무기 아이콘 일괄 생성 (gpt-image-2.6-flare, 투명) |
 | \`asset_generate_screen_background\` | 배경 이미지 생성 |
 | \`asset_edit_character_design\` | 캐릭터 디자인 수정 후 자동 재생성 |
 | \`asset_remove_background\` | 배경 제거 (투명 PNG) |
@@ -345,10 +345,10 @@ Returns:
     "asset_generate_weapons",
     {
       title: "Generate Weapon Icons",
-      description: `무기 아이콘을 gpt-image-1로 투명 배경으로 일괄 생성합니다.
+      description: `무기 아이콘을 gpt-image-2.6-flare로 투명 배경으로 일괄 생성합니다.
 
 프로세스 3.2단계에 해당합니다:
-- 각 무기를 gpt-image-1 (투명 배경) 로 생성
+- 각 무기를 gpt-image-2.6-flare (투명 배경) 로 생성
 - 아이콘 스타일, 탑다운 각도
 - CONCEPT.md의 BASE STYLE PROMPT 자동 적용
 

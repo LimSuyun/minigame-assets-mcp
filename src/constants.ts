@@ -1,23 +1,9 @@
 export const OPENAI_API_URL = "https://api.openai.com/v1";
 
 // ─── OpenAI 이미지 모델 ───────────────────────────────────────────────────────
-/** 기본 모델: gpt-image-1-mini (2D 미니게임 에셋 최적, 단순 치비 스타일, 저비용) */
-export const OPENAI_IMAGE_MODELS = [
-  "gpt-image-2",
-  "gpt-image-1.5",
-  "gpt-image-1",
-  "gpt-image-1-mini",
-] as const;
-export type OpenAIImageModelConst = typeof OPENAI_IMAGE_MODELS[number];
-
-/**
- * background: "transparent" 를 지원하지 않는 모델 목록.
- * 서비스 계층에서 요청이 transparent 일 때 "auto" 로 자동 강등한다.
- * (gpt-image-2 는 투명 배경 출력 미지원 — 2026-04-21 출시 공식 스펙)
- */
-export const OPENAI_MODELS_NO_TRANSPARENT_BG: ReadonlyArray<typeof OPENAI_IMAGE_MODELS[number]> = [
-  "gpt-image-2",
-];
+// 모델 ID·기본값은 src/models.ts 에서 관리한다 (여기는 하위 호환 re-export).
+export { OPENAI_IMAGE_MODELS, OPENAI_MODELS_NO_TRANSPARENT_BG } from "./models.js";
+export type { OpenAIImageModel as OpenAIImageModelConst } from "./models.js";
 
 export const CHARACTER_LIMIT = 25000;
 

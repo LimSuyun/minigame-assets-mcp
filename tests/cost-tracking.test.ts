@@ -12,10 +12,23 @@ import {
 } from "../src/utils/cost-tracking.js";
 
 describe("estimateImageCost", () => {
-  it("gpt-image-2 high는 gpt-image-1-mini low보다 비쌈", () => {
+  it("gpt-image-2 high는 gpt-image-2.5-flare low보다 비쌈", () => {
     const high = estimateImageCost("gpt-image-2", "high").usd;
-    const miniLow = estimateImageCost("gpt-image-1-mini", "low").usd;
-    expect(high).toBeGreaterThan(miniLow);
+    const flareLow = estimateImageCost("gpt-image-2.5-flare", "low").usd;
+    expect(high).toBeGreaterThan(flareLow);
+  });
+
+  it("종료된 모델 ID는 대체 모델(gpt-image-2.6-flare) 단가로 계산", () => {
+    const retired = estimateImageCost("gpt-image-1-mini", "medium");
+    const replacement = estimateImageCost("gpt-image-2.6-flare", "medium");
+    expect(retired.usd).toBe(replacement.usd);
+    expect(retired.formula).toContain("gpt-image-2.6-flare");
+  });
+
+  it("gpt-image-2.5/2.6 계열의 auto 는 medium 과 같은 단가 (서비스가 medium 으로 고정)", () => {
+    for (const m of ["gpt-image-2.6-flare", "gpt-image-2.5-flare"]) {
+      expect(estimateImageCost(m, "auto").usd).toBe(estimateImageCost(m, "medium").usd);
+    }
   });
 
   it("같은 모델에서 quality 순서: low < medium < high", () => {
@@ -100,6 +113,11 @@ describe("buildCostTelemetry", () => {
     expect(t.est_cost_usd).toBeGreaterThan(0);
     expect(t.model).toBe("gpt-image-2");
     expect(t.cost_formula).toBeTruthy();
+  });
+
+  it("edit 비용: 2.6 계열은 medium, gpt-image-2 는 high 가정", () => {
+    expect(estimateImageEditCost("gpt-image-2.6-flare").usd).toBe(estimateImageCost("gpt-image-2.6-flare", "medium").usd);
+    expect(estimateImageEditCost("gpt-image-2").usd).toBe(estimateImageCost("gpt-image-2", "high").usd);
   });
 
   it("buildEditCostTelemetry는 ref 개수를 formula에 포함", () => {

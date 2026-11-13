@@ -6,16 +6,19 @@
  * no-shadow/no-text 등 제약)은 그대로 유지되고, 이 함수는 "description" 부분만
  * 대체한다.
  *
- * 기본 모델: gpt-5.4-nano (저렴·빠름, 프롬프트 확장 용도로 충분).
+ * 기본 모델: gpt-5.4-nano (저렴·빠름, 프롬프트 확장 용도로 충분). OPENAI_PROMPT_MODEL 로 교체 가능.
  * 품질 더 필요한 경우 textModel에 "gpt-5.2" 또는 "gpt-5.2-pro" 지정.
+ * 모델 ID는 src/models.ts 에서 관리한다.
  */
 
 import axios from "axios";
 import { OPENAI_API_URL } from "../constants.js";
 import { requireEnvVar } from "../utils/errors.js";
+import { DEFAULT_PROMPT_REFINE_MODEL, normalizeImageModelId } from "../models.js";
 
-export type GPT5Model = "gpt-5.4-nano" | "gpt-5.2" | "gpt-5.2-pro" | "gpt-5.2-chat-latest";
-export const DEFAULT_GPT5_PROMPT_MODEL: GPT5Model = "gpt-5.4-nano";
+/** 프롬프트 리파인 모델 ID (models.ts 의 PROMPT_REFINE_MODELS 또는 임의 문자열). */
+export type GPT5Model = string;
+export const DEFAULT_GPT5_PROMPT_MODEL: GPT5Model = DEFAULT_PROMPT_REFINE_MODEL;
 
 export type PromptAssetType =
   | "character"
@@ -27,11 +30,8 @@ export type PromptAssetType =
   | "logo"
   | "other";
 
-export type PromptTargetModel =
-  | "gpt-image-2"
-  | "gpt-image-1.5"
-  | "gpt-image-1"
-  | "gpt-image-1-mini";
+/** 최종 이미지를 생성할 모델 ID (프롬프트 스타일 가이드 선택용). */
+export type PromptTargetModel = string;
 
 export interface RefinePromptParams {
   /** 사용자가 제공한 원본 설명 (짧거나 모국어여도 됨) */
@@ -86,14 +86,11 @@ function buildAssetTypeGuidance(t: PromptAssetType): string {
 }
 
 function buildModelGuidance(m: PromptTargetModel): string {
-  switch (m) {
-    case "gpt-image-2":
-      return "gpt-image-2 handles rich detail instructions well. Specify materials (leather, chainmail, silk), lighting type (rim light, soft ambient), art style keywords. Multilingual text rendering supported if text is part of the asset.";
-    case "gpt-image-1.5":
-    case "gpt-image-1":
-    case "gpt-image-1-mini":
-      return "gpt-image-1 family: concise focused prompts. State subject clearly first, then key visual attributes, then art style keywords. Avoid over-long sentences.";
+  const model = normalizeImageModelId(m);
+  if (model === "gpt-image-2") {
+    return "gpt-image-2 handles rich detail instructions well. Specify materials (leather, chainmail, silk), lighting type (rim light, soft ambient), art style keywords. Multilingual text rendering supported if text is part of the asset.";
   }
+  return `${model}: state the subject clearly first, then key visual attributes (materials, colors, lighting), then art style keywords. Detailed instructions are followed well; avoid contradictory or redundant sentences.`;
 }
 
 // ─── 메인 함수 ───────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { generateImageOpenAI, editImageOpenAI } from "../services/openai.js";
 import { safeRefinePrompt, type PromptTargetModel } from "../services/gpt5-prompt.js";
+import { DEFAULT_PIPELINE_IMAGE_MODEL, imageModelSchema, supportsNativeTransparency } from "../models.js";
 import { writeOptimized } from "../utils/image-output.js";
 import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
@@ -47,9 +48,10 @@ export function registerGeneralImageTools(server: McpServer): void {
 - 출력 기본 경로: ./generated-images
 
 **모델 선택:**
-- gpt-image-2 (기본): 최고 품질, 사진·광고·고품질 일러스트 등 추천. 투명 배경 미지원.
-- gpt-image-1 / gpt-image-1.5: 중간 품질, 투명 배경 지원.
-- gpt-image-1-mini: 빠르고 저렴, 단순 이미지.
+- gpt-image-2 (기본): 사진·광고·고품질 일러스트 등 추천. 투명 배경 미지원. 2027-02-10 지원 종료 예정.
+- gpt-image-2.6-flare / gpt-image-2.6-sunburst: 최신 모델, 투명 배경 지원 (sunburst는 편집 정밀도 우선).
+- gpt-image-2.5-flare: 빠르고 저렴, 단순 이미지.
+- 지원 종료된 gpt-image-1 / gpt-image-1-mini / gpt-image-1.5 를 지정하면 gpt-image-2.6-flare 로 자동 대체.
 
 **스타일 프리셋 (style 파라미터):**
   photorealistic, illustration, anime, oil-painting, watercolor,
@@ -76,9 +78,9 @@ Returns:
           "oil-painting", "watercolor", "3d-render", "sketch",
           "pixel-art", "cinematic", "flat",
         ]).default("none").describe("스타일 프리셋. none이면 프롬프트 그대로 사용"),
-        model: z.enum(["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"])
-          .default("gpt-image-2")
-          .describe("이미지 생성 모델. 기본: gpt-image-2 (최고 품질)"),
+        model: imageModelSchema
+          .default(DEFAULT_PIPELINE_IMAGE_MODEL)
+          .describe("이미지 생성 모델. 기본: gpt-image-2. 대안: gpt-image-2.6-flare | gpt-image-2.6-sunburst | gpt-image-2.5-flare | gpt-image-2.5-sunburst"),
         size: z.enum(["1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"])
           .default("1024x1024")
           .describe("이미지 크기. 1792x1024=가로형, 1024x1792=세로형"),
@@ -111,7 +113,7 @@ Returns:
         ensureDir(outputDir);
 
         const effectiveModel = params.model;
-        const supportsNativeTransparent = effectiveModel.startsWith("gpt-image-1");
+        const supportsNativeTransparent = supportsNativeTransparency(effectiveModel);
 
         // gpt-image-2는 transparent 미지원 → opaque 요청이어도 auto로 처리
         const effectiveBg = (params.background === "transparent" && !supportsNativeTransparent)
@@ -137,7 +139,7 @@ Returns:
 
         const result = await generateImageOpenAI({
           prompt: finalPrompt,
-          model: effectiveModel as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+          model: effectiveModel,
           size: params.size === "auto" ? "1024x1024" : params.size,
           quality: params.quality,
           background: effectiveBg,
@@ -234,9 +236,9 @@ Returns:
       inputSchema: z.object({
         image_path: z.string().min(1).describe("편집 기준 원본 이미지 경로"),
         prompt: z.string().min(1).max(4000).describe("편집 지시 (예: 배경을 우주로 바꿔줘, 낮을 밤으로 변환)"),
-        model: z.enum(["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"])
-          .default("gpt-image-2")
-          .describe("편집 모델"),
+        model: imageModelSchema
+          .default(DEFAULT_PIPELINE_IMAGE_MODEL)
+          .describe("편집 모델. 기본: gpt-image-2. 대안: gpt-image-2.6-sunburst (편집 정밀) | gpt-image-2.6-flare | gpt-image-2.5-flare | gpt-image-2.5-sunburst"),
         size: z.enum(["1024x1024", "1536x1024", "1024x1536"])
           .default("1024x1024")
           .describe("출력 크기 (edit API 지원 크기)"),
@@ -279,8 +281,9 @@ Returns:
         const result = await editImageOpenAI({
           imagePaths: [params.image_path],
           prompt: finalPrompt,
-          model: params.model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+          model: params.model,
           size: params.size,
+          quality: params.quality,
         });
 
         const ts = Date.now();

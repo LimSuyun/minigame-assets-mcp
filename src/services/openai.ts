@@ -2,20 +2,31 @@ import axios from "axios";
 import * as fs from "fs";
 import * as path from "path";
 import * as FormData from "form-data";
-import { OPENAI_API_URL, OPENAI_MODELS_NO_TRANSPARENT_BG } from "../constants.js";
+import { OPENAI_API_URL } from "../constants.js";
+import {
+  DEFAULT_OPENAI_IMAGE_MODEL,
+  DEFAULT_RESPONSES_TEXT_MODEL,
+  DEFAULT_VISION_MODEL,
+  resolveImageModel,
+  resolveImageQuality,
+  supportsNativeTransparency,
+  type ImageQuality,
+} from "../models.js";
 import { requireEnvVar } from "../utils/errors.js";
+import { prepareEditInput } from "../utils/image-process.js";
 import type { OpenAIImageResponse } from "../types.js";
 
 // ─── 모델 타입 ────────────────────────────────────────────────────────────────
+// 모델 ID·기본값은 src/models.ts 에서 관리한다.
 
-export type OpenAIImageModel =
-  | "gpt-image-2"
-  | "gpt-image-1.5"
-  | "gpt-image-1"
-  | "gpt-image-1-mini";
+/**
+ * 이미지 모델 ID. 레지스트리(models.ts)의 ID 외에 임의 문자열도 허용한다
+ * — 새 모델이 나오면 코드 수정 없이 model 파라미터로 바로 쓸 수 있게.
+ * 종료된 ID(gpt-image-1 계열)는 서비스 계층에서 대체 모델로 자동 치환된다.
+ */
+export type OpenAIImageModel = string;
 
-/** 기본 이미지 생성 모델 (gpt-image-1-mini: 2D 미니게임 에셋에 최적, 단순 스타일, 저비용) */
-export const DEFAULT_OPENAI_IMAGE_MODEL: OpenAIImageModel = "gpt-image-1-mini";
+export { DEFAULT_OPENAI_IMAGE_MODEL };
 
 type BackgroundOpt = "transparent" | "opaque" | "auto";
 
@@ -29,11 +40,17 @@ function resolveBackground(
   requested: BackgroundOpt | undefined,
 ): BackgroundOpt {
   const value = requested ?? "transparent";
-  if (value === "transparent" && (OPENAI_MODELS_NO_TRANSPARENT_BG as readonly string[]).includes(model)) {
+  if (value === "transparent" && !supportsNativeTransparency(model)) {
     return "auto";
   }
   return value;
 }
+
+/** 투명 배경 요청 시 프롬프트 끝에 붙이는 지시문 (generateImageOpenAI 참조). */
+export const TRANSPARENT_BG_PROMPT_SUFFIX =
+  " — BACKGROUND: fully transparent. Draw ONLY the subject itself as an isolated cut-out. " +
+  "No backdrop, no paper or canvas texture behind the subject, no card, frame or border, " +
+  "no scenery, no ground, no background patterns or ornaments around the subject.";
 
 // ─── 공통 헤더 ────────────────────────────────────────────────────────────────
 
@@ -50,26 +67,34 @@ export interface OpenAIImageParams {
   prompt: string;
   model?: OpenAIImageModel;
   size?: "1024x1024" | "1792x1024" | "1024x1792" | "1536x1024" | "1024x1536" | "auto";
-  quality?: "low" | "medium" | "high" | "auto";
+  quality?: ImageQuality;
   background?: "transparent" | "opaque" | "auto";
 }
 
 export async function generateImageOpenAI(
   params: OpenAIImageParams
 ): Promise<{ base64: string; mimeType: string; revisedPrompt: string }> {
-  const model = params.model ?? DEFAULT_OPENAI_IMAGE_MODEL;
+  const model = resolveImageModel(params.model);
+  const background = resolveBackground(model, params.background);
+
+  // 네이티브 투명 모델(gpt-image-2.5/2.6)은 background: "transparent" 만으로는 부족하다.
+  // 스타일 프롬프트에 "종이 질감·분위기·장식 문양" 같은 표현이 있으면 캔버스 전체에
+  // 배경을 그려 넣는다(세시마을 민화 컨셉 실측: 아이콘 3/3 이 불투명 한지 배경으로 반환).
+  // 투명 요청 시 피사체만 그리도록 프롬프트에 명시한다.
+  const prompt = background === "transparent"
+    ? `${params.prompt}${TRANSPARENT_BG_PROMPT_SUFFIX}`
+    : params.prompt;
 
   const body: Record<string, unknown> = {
     model,
-    prompt: params.prompt,
+    prompt,
     size: params.size || "1024x1024",
     n: 1,
-    background: resolveBackground(model, params.background),
+    background,
   };
 
-  if (params.quality && ["low", "medium", "high", "auto"].includes(params.quality)) {
-    body.quality = params.quality;
-  }
+  const quality = resolveImageQuality(model, params.quality);
+  if (quality) body.quality = quality;
 
   const response = await axios.post<OpenAIImageResponse>(
     `${OPENAI_API_URL}/images/generations`,
@@ -102,6 +127,14 @@ export interface OpenAIImageEditParams {
   maskPath?: string;        // 선택적 마스크 PNG (투명 영역을 편집)
   model?: OpenAIImageModel;
   size?: "1024x1024" | "1536x1024" | "1024x1536";
+  /** 생성 품질. gpt-image-2.5/2.6 계열은 미지정 시 "medium" 으로 고정 (과금 방지). */
+  quality?: ImageQuality;
+  /**
+   * 배경 타입. 네이티브 투명 지원 모델(gpt-image-2.5/2.6)에만 전송한다.
+   * 미지정 시: 첫 입력 이미지에 투명 픽셀이 있으면 "transparent"(투명 유지), 없으면 API 기본값(auto).
+   * 크로마키·불투명 결과가 필요하면 "opaque" 를 명시할 것.
+   */
+  background?: "transparent" | "opaque" | "auto";
 }
 
 export async function editImageOpenAI(
@@ -119,7 +152,19 @@ export async function editImageOpenAI(
     throw new Error("editImageOpenAI: imagePath 또는 imagePaths 중 하나는 반드시 필요합니다.");
   }
 
-  const model = params.model ?? DEFAULT_OPENAI_IMAGE_MODEL;
+  const model = resolveImageModel(params.model);
+  const quality = resolveImageQuality(model, params.quality);
+
+  // 네이티브 투명 지원 모델은 입력 알파를 무시하고 투명 영역을 검은 배경으로 인식한다.
+  // → 투명 입력은 흰 배경에 합성해 보내고, 첫 이미지가 투명이었으면 투명 출력을 요청한다.
+  // gpt-image-2 요청은 기존과 동일하게 유지한다.
+  const nativeTransparency = supportsNativeTransparency(model);
+  const prepared = nativeTransparency
+    ? await Promise.all(paths.map((p) => prepareEditInput(p)))
+    : [];
+  const background: BackgroundOpt | undefined = nativeTransparency
+    ? params.background ?? (prepared[0]?.hadTransparency ? "transparent" : undefined)
+    : undefined;
 
   const buildForm = () => {
     const form = new FormData.default();
@@ -127,7 +172,7 @@ export async function editImageOpenAI(
     form.append("prompt", params.prompt);
 
     for (let i = 0; i < paths.length; i++) {
-      form.append("image[]", fs.createReadStream(paths[i]), {
+      form.append("image[]", prepared[i]?.flattened ?? fs.createReadStream(paths[i]), {
         filename: `image_${i}.png`,
         contentType: "image/png",
       });
@@ -141,6 +186,8 @@ export async function editImageOpenAI(
     }
     form.append("n", "1");
     if (params.size) form.append("size", params.size);
+    if (quality) form.append("quality", quality);
+    if (background) form.append("background", background);
     return form;
   };
 
@@ -171,14 +218,14 @@ export async function editImageOpenAI(
 //   tools  = [{ type: "image_generation", ... }]
 //   action = "auto" | "generate" | "edit"
 //
-// gpt-image-2 / gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini 는 내부 이미지 모델.
-// Responses API의 model 파라미터에는 직접 지정 불가.
+// gpt-image-* 는 내부 이미지 모델. Responses API의 model 파라미터에는 직접 지정 불가하며
+// image_generation tool 의 model 필드로 지정한다.
 
 export interface OpenAIResponsesImageParams {
   prompt: string;
   /** Responses API에 전달하는 텍스트 메인 모델 */
-  textModel?: "gpt-4.1" | "gpt-4.1-mini" | "gpt-4o" | "gpt-4o-mini";
-  /** 내부 이미지 생성에 사용될 GPT Image 모델 (지원 시) */
+  textModel?: string;
+  /** 내부 이미지 생성에 사용될 GPT Image 모델 (image_generation tool 의 model 필드로 전달) */
   imageModel?: OpenAIImageModel;
   /**
    * "generate" — 새 이미지 강제 생성
@@ -220,9 +267,10 @@ export async function generateImageWithResponses(
 
   // ── image_generation tool 설정 ───────────────────────────────────────────
   // 내부 imageModel 이 gpt-image-2 인 경우 transparent 배경은 미지원 → auto 로 강등
-  const resolvedImageModel: OpenAIImageModel = params.imageModel ?? DEFAULT_OPENAI_IMAGE_MODEL;
+  const resolvedImageModel = resolveImageModel(params.imageModel);
   const imageTool: Record<string, unknown> = {
     type: "image_generation",
+    model: resolvedImageModel,
     background: resolveBackground(resolvedImageModel, params.background),
     quality: params.quality ?? "high",
     size: params.size ?? "1024x1024",
@@ -234,7 +282,7 @@ export async function generateImageWithResponses(
 
   // ── 요청 본문 ────────────────────────────────────────────────────────────
   const body: Record<string, unknown> = {
-    model: params.textModel ?? "gpt-4.1",
+    model: params.textModel ?? DEFAULT_RESPONSES_TEXT_MODEL,
     input: [{ role: "user", content }],
     tools: [imageTool],
     tool_choice: { type: "image_generation" },
@@ -283,7 +331,7 @@ export interface OpenAIVisionParams {
   primaryLabel?: string;
   /** 비교 검사용 추가 이미지들. label은 해당 이미지 바로 앞에 텍스트로 삽입된다. */
   additionalImages?: Array<{ base64: string; mimeType: string; label?: string }>;
-  textModel?: "gpt-4.1" | "gpt-4.1-mini" | "gpt-4o" | "gpt-4o-mini";
+  textModel?: string;
   maxOutputTokens?: number;
 }
 
@@ -320,7 +368,7 @@ export async function analyzeImageOpenAI(
   content.push({ type: "input_text", text: params.prompt });
 
   const body = {
-    model: params.textModel ?? "gpt-4.1-mini",
+    model: params.textModel ?? DEFAULT_VISION_MODEL,
     input: [{ role: "user", content }],
     max_output_tokens: params.maxOutputTokens ?? 1024,
   };

@@ -58,15 +58,15 @@
 
 ### Step 3. 무기 생성
 
-> **프로세스**: gpt-image-1로 투명 배경 아이콘 생성 (네이티브 투명, 빠른 경로 유지)
+> **프로세스**: gpt-image-2.6-flare로 투명 배경 아이콘 생성 (네이티브 투명, 빠른 경로 유지)
 
-- [ ] **무기명 (weapon_id)**: `asset_generate_weapons` — gpt-image-1, transparent background
+- [ ] **무기명 (weapon_id)**: `asset_generate_weapons` — gpt-image-2.6-flare, transparent background
 
 ---
 
 ### Step 4. 배경 + 화면 생성
 
-> **프로세스**: gpt-image-2로 배경·화면 이미지 생성 (불투명, **spec-aware** — `target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 + sharp cover-crop). parallax 투명 레이어는 gpt-image-1 네이티브 투명.
+> **프로세스**: gpt-image-2로 배경·화면 이미지 생성 (불투명, **spec-aware** — `target_size` 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 + sharp cover-crop). parallax 투명 레이어는 gpt-image-2.6-flare 네이티브 투명.
 
 - [ ] **게임 씬 배경 (background_id)**: `asset_generate_screen_background` — provider: openai, model: gpt-image-2, style: static
 - [ ] **로딩 화면**: `asset_generate_loading_screen` — game_name, hero_image_path (선택), aspect_ratio: 16:9
@@ -102,8 +102,8 @@
 | `asset_generate_character_base` | 캐릭터 정면 베이스 (gpt-image-2, role: player/enemy/monster/npc) |
 | `asset_generate_character_equipped` | 베이스 + 장비 다중 레퍼런스 합성 → 새 베이스 |
 | `asset_generate_sprite_sheet` | 캐릭터 액션 스프라이트 시트 (gpt-image-2 edit, **Sequential anchor+prev** 패턴, 1행 가로 기본, auto_compose_sheet) |
-| `asset_generate_weapons` | 무기 아이콘 일괄 생성 (gpt-image-1, 투명) |
-| `asset_generate_screen_background` | 게임 씬 배경 (gpt-image-2, **spec-aware** target_size/asset_size_spec.json 자동 적용 + sharp cover-crop. parallax 레이어는 gpt-image-1 네이티브 투명) |
+| `asset_generate_weapons` | 무기 아이콘 일괄 생성 (gpt-image-2.6-flare, 투명) |
+| `asset_generate_screen_background` | 게임 씬 배경 (gpt-image-2, **spec-aware** target_size/asset_size_spec.json 자동 적용 + sharp cover-crop. parallax 레이어는 gpt-image-2.6-flare 네이티브 투명) |
 | `asset_generate_title_text` | 게임 타이틀 워드마크 PNG 단독 생성 (재사용 자산 — 로고/썸네일/로딩에 `title_text_image_path` 로 공유) |
 | `asset_generate_app_logo` / `asset_generate_thumbnail` | 워드마크 PNG + 캐릭터/배경 합성 (Stage 6 마케팅) |
 | `asset_consolidate_registry` | 분산 sub-registry 흡수 (옛 v3.0.x 마이그레이션) |

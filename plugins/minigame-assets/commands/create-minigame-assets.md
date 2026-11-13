@@ -107,7 +107,7 @@ asset_generate_design_sheet
 `asset_generate_character_base` 도구로 각 캐릭터의 정면 베이스 이미지를 생성합니다.
 
 - AI: OpenAI **gpt-image-2** (기본) — 마젠타 크로마키 자동 적용 → 투명 PNG
-- 대안: `model: "gpt-image-1"` 명시 시 네이티브 투명 (더 빠르나 디테일 낮음)
+- 대안: `model: "gpt-image-2.6-flare"` 명시 시 네이티브 투명 (더 빠름)
 - **`role` 파라미터 활용**: `player` / `enemy` / `monster` / `npc` / `generic` — 역할별 실루엣·컬러·디테일 가이던스 자동 주입
 - CONCEPT.md의 base_style_prompt 활용
 - 짧은 한국어/간단한 설명이면 `refine_prompt: true`로 GPT-5.4-nano가 상세 영문 확장
@@ -139,7 +139,7 @@ asset_generate_design_sheet
 
 `asset_generate_weapons` 도구로 무기 아이콘을 일괄 생성합니다.
 
-- AI: OpenAI gpt-image-1 (유지 — 투명 배경 네이티브로 빠른 경로)
+- AI: OpenAI gpt-image-2.6-flare (유지 — 투명 배경 네이티브로 빠른 경로)
 - 투명 배경 PNG
 - CONCEPT.md의 무기 목록 자동 참조
 
@@ -164,7 +164,7 @@ asset_generate_design_sheet
 `asset_generate_screen_background`
 - AI: OpenAI **gpt-image-2** (기본, static 배경) — 디테일·텍스트 품질 우수, 불투명 PNG
 - **spec-aware 사이즈 (v3.1.0+)**: `target_size` (예: "390x844") 또는 `asset_size_spec.json` 의 `backgrounds.full` 자동 적용 → sharp cover-crop 으로 정확한 사이즈 출력. setDisplaySize 시 stretch 발생 방지.
-- parallax 모드 (far/mid/near 레이어): mid/near 는 gpt-image-1 네이티브 투명. 각 레이어는 `parallax_far/mid/near` spec 자동 적용
+- parallax 모드 (far/mid/near 레이어): mid/near 는 gpt-image-2.6-flare 네이티브 투명. 각 레이어는 `parallax_far/mid/near` spec 자동 적용
 
 ### 로딩 화면
 `asset_generate_loading_screen`
@@ -240,8 +240,8 @@ asset_generate_atlas_json  ← 스프라이트 Atlas JSON 생성
 | 장비 결합 베이스 | `asset_generate_character_equipped` | **gpt-image-2 edit** (다중 레퍼런스 합성) |
 | 스프라이트 | `asset_generate_sprite_sheet` (Sequential anchor+prev, 1행 기본) | **gpt-image-2 edit** (마젠타 크로마키, frames_per_action 5+ 매트릭스) |
 | 타이틀 워드마크 | `asset_generate_title_text` | **gpt-image-2** + 마젠타 크로마키 → 투명 PNG (재사용 자산) |
-| 무기 | `asset_generate_weapons` | gpt-image-1 (투명 배경, 네이티브) |
-| 배경 | `asset_generate_screen_background` | **gpt-image-2** (spec-aware 사이즈, parallax 레이어는 gpt-image-1 투명) |
+| 무기 | `asset_generate_weapons` | gpt-image-2.6-flare (투명 배경, 네이티브) |
+| 배경 | `asset_generate_screen_background` | **gpt-image-2** (spec-aware 사이즈, parallax 레이어는 gpt-image-2.6-flare 투명) |
 | 로딩 화면 | `asset_generate_loading_screen` | **gpt-image-2** (히어로 레퍼런스 지원) |
 | 로비 화면 | `asset_generate_lobby_screen` | **gpt-image-2** (menu_side 지정) |
 | 로고 | `asset_generate_app_logo` | **gpt-image-2** (타이틀 텍스트 PNG + 캐릭터/대표 이미지 → edit 통합 합성) |

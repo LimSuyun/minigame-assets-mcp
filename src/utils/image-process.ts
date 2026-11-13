@@ -321,7 +321,9 @@ export async function addPadding(
 
   const pad = Math.round(Math.min(w, h) * (paddingPercent / 100));
 
-  await sharp(inputPath)
+  // 버퍼로 받은 뒤 기록한다 — sharp 는 입력과 출력이 같은 파일이면
+  // "Cannot use same file for input and output" 로 실패한다 (제자리 패딩 지원).
+  const padded = await sharp(inputPath)
     .extend({
       top: pad,
       bottom: pad,
@@ -330,7 +332,8 @@ export async function addPadding(
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
     .png()
-    .toFile(outputPath);
+    .toBuffer();
+  await fs.promises.writeFile(outputPath, padded);
 }
 
 /**
@@ -535,5 +538,31 @@ export async function processFrameBase64AI(
   } finally {
     if (fs.existsSync(tmpIn)) fs.unlinkSync(tmpIn);
     if (fs.existsSync(tmpOut)) fs.unlinkSync(tmpOut);
+  }
+}
+
+/**
+ * 편집(edit) 입력 이미지 준비 — 투명 픽셀이 있으면 흰 배경에 합성한 PNG 버퍼를 반환한다.
+ *
+ * gpt-image-2.5/2.6 edit 는 입력의 알파 채널을 무시하고 투명 영역을 검은 배경으로 인식해,
+ * background: "transparent" 를 요청해도 어두운 배경이 그려진 결과를 돌려준다(2026-11 실측).
+ * 흰 배경에 합성해 보내면 투명 출력이 정상적으로 나온다.
+ *
+ * @returns hadTransparency — 원본에 투명 픽셀이 있었는지. flattened — 합성본(투명 픽셀이 없으면 undefined).
+ *          읽기 실패 시 { hadTransparency: false }.
+ */
+export async function prepareEditInput(
+  imagePath: string,
+): Promise<{ hadTransparency: boolean; flattened?: Buffer }> {
+  try {
+    const meta = await sharp(imagePath).metadata();
+    if (!meta.hasAlpha) return { hadTransparency: false };
+    const stats = await sharp(imagePath).stats();
+    const alpha = stats.channels[stats.channels.length - 1];
+    if (alpha.min >= 250) return { hadTransparency: false };
+    const flattened = await sharp(imagePath).flatten({ background: "#ffffff" }).png().toBuffer();
+    return { hadTransparency: true, flattened };
+  } catch {
+    return { hadTransparency: false };
   }
 }

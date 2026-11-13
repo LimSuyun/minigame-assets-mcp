@@ -4,7 +4,7 @@ AI 기반 게임 에셋 생성 워크플로를 Claude Code 에 원클릭으로 �
 
 포함된 것:
 
-- **MCP 서버**: [`minigame-assets-mcp`](https://www.npmjs.com/package/minigame-assets-mcp) — 40+ `asset_*` 도구 (캐릭터·스프라이트·무기·배경·UI·로고·썸네일·음악·영상 생성, 품질 검토)
+- **MCP 서버**: [`minigame-assets-mcp`](https://www.npmjs.com/package/minigame-assets-mcp) — 40+ `asset_*` 도구 (캐릭터·스프라이트·무기·배경·UI·로고·썸네일·음악 생성, 품질 검토)
 - **슬래시 커맨드 3종**:
   - `/create-minigame-assets` — 새 프로젝트용 전체 에셋 생성
   - `/setup-minigame-assets-concept` — 기존 게임 프로젝트 분석 + 누락 에셋 생성
@@ -32,8 +32,7 @@ AI 기반 게임 에셋 생성 워크플로를 Claude Code 에 원클릭으로 �
 이미지 생성에 필요합니다.
 
 ```bash
-export OPENAI_API_KEY="sk-..."       # 필수 (gpt-image-1, gpt-image-2)
-export GEMINI_API_KEY="..."          # 선택 (parallax 레이어, 영상)
+export OPENAI_API_KEY="sk-..."       # 필수 (gpt-image-2.6-flare, gpt-image-2)
 export ASSETS_OUTPUT_DIR="./.minigame-assets"                     # 선택 (기본값 동일)
 export CONCEPT_FILE="./.minigame-assets/game-concept.json"        # 선택
 export CONCEPT_MD_FILE="./.minigame-assets/CONCEPT.md"            # 선택

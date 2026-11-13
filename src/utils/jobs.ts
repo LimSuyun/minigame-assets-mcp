@@ -192,7 +192,11 @@ export function cleanupOldJobs(
         removed++;
       }
     } catch {
-      // 손상된 파일도 삭제 대상
+      // 손상된(파싱 불가) 파일도 삭제 대상
+      try {
+        fs.unlinkSync(filePath);
+        removed++;
+      } catch { /* 삭제 실패는 무시 */ }
     }
   }
 

@@ -4,9 +4,9 @@
  * 캐릭터 확장 에셋 생성 도구 모음.
  *
  * 도구 분류:
- *   - asset_generate_character_portrait : 고화질 초상화 (Canon 파생, gpt-image-1 edit)
+ *   - asset_generate_character_portrait : 고화질 초상화 (Canon 파생, gpt-image-2.6-flare edit)
  *   - asset_generate_character_card     : 캐릭터 선택 카드 UI (Sharp 합성, AI 재생성 없음)
- *   - asset_generate_avatar_parts       : 아바타 커스터마이징 파츠 세트 (gpt-image-1)
+ *   - asset_generate_avatar_parts       : 아바타 커스터마이징 파츠 세트 (gpt-image-2.6-flare)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -29,6 +29,7 @@ import { writeOptimized } from "../utils/image-output.js";
 import { DEFAULT_ASSET_SIZE_SPEC_FILE } from "../constants.js";
 import type { GeneratedAsset } from "../types.js";
 import type { AssetSizeSpecFile, CanonEntry } from "../types.js";
+import { DEFAULT_OPENAI_IMAGE_MODEL } from "../models.js";
 
 // ─── 레어리티 색상 ────────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ export function registerCharacterExtTools(server: McpServer): void {
       title: "Generate Character Portrait (Canon-derived)",
       description: `Generate a high-quality character portrait for selection/profile screens, derived from a Canon base image.
 
-Uses gpt-image-1 image edit to maintain visual consistency with the canon base character.
+Uses gpt-image-2.6-flare image edit to maintain visual consistency with the canon base character.
 Automatically generates three sizes: full (1024×1024), bust (512×512), and thumb (128×128).
 
 Args:
@@ -121,7 +122,7 @@ Args:
   - output_dir (string, optional): Output directory
 
 Returns:
-  - portrait_full.png    (1024×1024 — gpt-image-1 edit from canon base)
+  - portrait_full.png    (1024×1024 — gpt-image-2.6-flare edit from canon base)
   - portrait_bust.png    (512×512 — Sharp resize from full)
   - portrait_thumb.png   (128×128 — Sharp resize from full)`,
       inputSchema: z.object({
@@ -180,15 +181,16 @@ Returns:
           `${NO_SHADOW_IN_IMAGE} ` +
           `${NO_TEXT_IN_IMAGE}`;
 
-        // Generate full portrait via gpt-image-1 image edit
+        // Generate full portrait via gpt-image-2.6-flare image edit
         const portraitLatency = startLatencyTracker();
         const fullResult = await editImageOpenAI({
           imagePath: resolvedBase,
           prompt,
           size: "1024x1024",
+          background: params.background_style === "transparent" ? "transparent" : "opaque",
         });
         const portraitLatencyMs = portraitLatency.elapsed();
-        const portraitCost = buildEditCostTelemetry("gpt-image-1-mini", "1024x1024", portraitLatencyMs, 1);
+        const portraitCost = buildEditCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "1024x1024", portraitLatencyMs, 1);
 
         const fullBuffer = Buffer.from(fullResult.base64, "base64");
 
@@ -529,7 +531,7 @@ Returns:
     "asset_generate_avatar_parts",
     {
       title: "Generate Avatar Customization Parts",
-      description: `Generate avatar customization part set images using gpt-image-1.
+      description: `Generate avatar customization part set images using gpt-image-2.6-flare.
 
 All parts are generated at 1024×1024 with transparent backgrounds, matching the canvas size
 of the base character for anchor-point-based compositing in game engines.
@@ -662,7 +664,7 @@ Returns:
                 category: params.category,
                 canvas_size: CANVAS_SIZE,
                 character_base_path: resolvedBase,
-                ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", partLatencyMs),
+                ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", "1024x1024", partLatencyMs),
               },
             };
             saveAssetToRegistry(asset, outputDir);

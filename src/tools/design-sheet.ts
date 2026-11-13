@@ -132,7 +132,7 @@ Returns:
           const result = await editImageOpenAI({
             imagePath: path.resolve(canon.file_path),
             prompt,
-            model: params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini",
+            model: params.edit_model,
           });
           saveBase64File(result.base64, sheetPath);
           boxes = await detectSheetComponents(sheetPath, {

@@ -15,6 +15,7 @@ import { handleApiError } from "../utils/errors.js";
 import { startLatencyTracker, buildCostTelemetry } from "../utils/cost-tracking.js";
 import { writeOptimized } from "../utils/image-output.js";
 import type { GeneratedAsset, AssetSizeSpecFile } from "../types.js";
+import { DEFAULT_OPENAI_IMAGE_MODEL } from "../models.js";
 
 // ─── Seamless 타일링 헬퍼 ─────────────────────────────────────────────────────
 
@@ -100,8 +101,8 @@ export function registerEnvironmentTools(server: McpServer): void {
       description: `Generate a multi-layer parallax background set for a game scene.
 
 Produces far/mid/near/ground layers at the correct widths for smooth side-scrolling parallax.
-- Far layer  : gpt-image-1-mini (opaque, screen-fill background)
-- Mid/near/ground layers: gpt-image-1 (transparent PNG, foreground objects)
+- Far layer  : 기본 이미지 모델 gpt-image-2.6-flare (opaque, screen-fill background)
+- Mid/near/ground layers: gpt-image-2.6-flare (transparent PNG, foreground objects)
 
 Each layer is made seamlessly tileable (horizontal loop) via edge-blending.
 A parallax_config.json is written alongside the images.
@@ -238,7 +239,7 @@ Args:
             `Horizontal seamless tileable, width ${layerW}px × height ${layerH}px. ` +
             `Clean 2D game asset. ${NO_SHADOW_IN_IMAGE} ${NO_TEXT_IN_IMAGE}`;
 
-          const callModel = "gpt-image-1-mini";
+          const callModel = DEFAULT_OPENAI_IMAGE_MODEL;
           const openaiSize = nearestOpenAISize(layerW, layerH);
           const callSize: string | undefined = openaiSize;
 
@@ -270,7 +271,7 @@ Args:
             id: generateAssetId(),
             type: "image",
             asset_type: "background",
-            provider: "openai/gpt-image-1",
+            provider: `openai/${DEFAULT_OPENAI_IMAGE_MODEL}`,
             prompt,
             file_path: filePath,
             file_name: path.basename(filePath),
@@ -353,7 +354,7 @@ Args:
       description: `Generate a complete game map tileset PNG and its configuration JSON.
 
 Produces a 16×16 grid tileset image where each cell is T×T pixels (T = tile_size).
-Individual tiles are generated via gpt-image-1, then composed with Sharp into the final sheet.
+Individual tiles are generated via gpt-image-2.6-flare, then composed with Sharp into the final sheet.
 Each tile is made seamlessly tileable before placement.
 
 Included tile types:
@@ -452,7 +453,7 @@ Args:
           .png()
           .toBuffer();
 
-        // 표준 타일 16개를 gpt-image-1로 생성 후 시트에 배치
+        // 표준 타일 16개를 gpt-image-2.6-flare로 생성 후 시트에 배치
         const generatedTiles: Array<{ id: number; success: boolean; error?: string }> = [];
         const tilesetLatency = startLatencyTracker();
 
@@ -526,7 +527,7 @@ Args:
 
         const tilesetSuccessCount = generatedTiles.filter((t) => t.success).length;
         const tilesetLatencyMs = tilesetLatency.elapsed();
-        const tilesetCost = buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", tilesetLatencyMs);
+        const tilesetCost = buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", "1024x1024", tilesetLatencyMs);
         // 타일 1장당 cost를 성공한 타일 수만큼 곱해 집계
         tilesetCost.est_cost_usd = +(tilesetCost.est_cost_usd * tilesetSuccessCount).toFixed(4);
         tilesetCost.cost_formula = `${tilesetCost.cost_formula} × ${tilesetSuccessCount} tiles`;
@@ -535,7 +536,7 @@ Args:
           id: generateAssetId(),
           type: "image",
           asset_type: "tile",
-          provider: "openai/gpt-image-1",
+          provider: `openai/${DEFAULT_OPENAI_IMAGE_MODEL}`,
           prompt: `${params.theme} tileset, ${params.style_description}`,
           file_path: tilesetPath,
           file_name: tilesetFileName,
@@ -593,7 +594,7 @@ Args:
       title: "Generate Map Props Set",
       description: `Generate a set of decorative / interactive map props for a game level.
 
-Each prop is generated as a separate transparent PNG using gpt-image-1.
+Each prop is generated as a separate transparent PNG using gpt-image-2.6-flare.
 Props are saved to {output_dir}/props/{theme}/ with individual file names.
 
 Args:
@@ -672,7 +673,7 @@ Args:
               id: generateAssetId(),
               type: "image",
               asset_type: "other",
-              provider: "openai/gpt-image-1",
+              provider: `openai/${DEFAULT_OPENAI_IMAGE_MODEL}`,
               prompt,
               file_path: filePath,
               file_name: fileName,
@@ -682,7 +683,7 @@ Args:
                 theme: params.theme,
                 prop_id: prop.id,
                 prop_name: prop.name,
-                ...buildCostTelemetry("gpt-image-1-mini", "medium", "1024x1024", propLatencyMs),
+                ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", "1024x1024", propLatencyMs),
               },
             };
             saveAssetToRegistry(asset, outputDir);
@@ -738,7 +739,7 @@ Args:
       title: "Generate Interactive Object State Sprites",
       description: `Generate per-state sprites for interactive game objects (e.g. doors, chests, switches, traps).
 
-For each object × state combination, a transparent PNG is generated via gpt-image-1.
+For each object × state combination, a transparent PNG is generated via gpt-image-2.6-flare.
 An atlas JSON is written per object listing all state file paths.
 
 Args:
@@ -850,7 +851,7 @@ Args:
                 id: generateAssetId(),
                 type: "image",
                 asset_type: "sprite",
-                provider: "openai/gpt-image-1",
+                provider: `openai/${DEFAULT_OPENAI_IMAGE_MODEL}`,
                 prompt,
                 file_path: filePath,
                 file_name: fileName,
@@ -860,7 +861,7 @@ Args:
                   object_id: obj.id,
                   state,
                   frame_size: F,
-                  ...buildCostTelemetry("gpt-image-1-mini", "medium", openaiSize, stateLatencyMs),
+                  ...buildCostTelemetry(DEFAULT_OPENAI_IMAGE_MODEL, "medium", openaiSize, stateLatencyMs),
                 },
               };
               saveAssetToRegistry(asset, outputDir);

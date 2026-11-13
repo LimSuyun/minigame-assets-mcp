@@ -2,6 +2,58 @@
 
 이 프로젝트의 주요 변경 사항. SemVer 를 따르며, BREAKING 항목은 명시적으로 표시한다.
 
+## 3.4.1 — 2026-11-12
+
+> OpenAI 모델 지원 종료 대응 핫픽스. 기본 이미지 모델 `gpt-image-1-mini` 가 2026-12-01 종료되므로 그 전에 업데이트해야 합니다. 모델 레지스트리 중앙화 + 검증 중 발견한 버그 3건 수정.
+
+### 🔄 동작 변경 — 모델 지원 종료 대응
+
+- **기본 이미지 모델 교체: `gpt-image-1-mini` → `gpt-image-2.6-flare`** — 범용 이미지·무기·UI 장식·버튼·팝업·환경·이펙트·튜토리얼·아바타 파츠·편집 도구 등 기본 모델을 쓰던 모든 경로에 적용. 네이티브 투명 배경 지원(실측 7/7 정상).
+- **종료된 모델 ID 자동 대체** — `gpt-image-1`(2026-10-23 종료) / `gpt-image-1-mini` / `gpt-image-1.5`(2026-12-01 종료) / `chatgpt-image-latest` 를 `model` 로 지정하면 거부하지 않고 `gpt-image-2.6-flare` 로 치환한다 (stderr 에 모델당 1회 경고). 저장해 둔 플랜·스크립트가 그대로 동작.
+- **선택 가능 이미지 모델**: `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst`(편집 정밀) / `gpt-image-2.5-flare`(저비용) / `gpt-image-2.5-sunburst` / `gpt-image-2`. `asset_compare_models` 기본 비교 대상도 2.6-flare / 2.6-sunburst / 2.5-flare 로 변경.
+- **quality 과금 가드** — gpt-image-2.5/2.6 계열은 `quality` 를 생략하거나 `auto` 로 보내면 출력 토큰이 medium 의 약 4배(2.6-flare 1024² 실측: medium 1,449 / auto 5,795 토큰)가 된다. 이 계열은 미지정·`auto` 를 `medium` 으로 고정. `asset_generate_image_openai` 의 `quality` 기본값도 `auto` → `medium`.
+- **edit 호출의 투명 입력 처리** — gpt-image-2.5/2.6 edit 는 입력 알파를 무시하고 투명 영역을 검은 배경으로 인식해 어두운 배경이 그려진 결과를 돌려준다(실측). 이 계열로 편집할 때는 투명 입력을 흰 배경에 합성해 전송하고, 첫 입력이 투명이었으면 `background: "transparent"` 를 요청한다. `asset_edit_image` / `asset_edit_sprite` / `asset_edit_character_design` 결과의 투명 배경 유지 확인. `asset_generate_character_portrait` 는 `background_style` 에 맞춰 transparent/opaque 를 명시 전송.
+- **투명 배경 요청 시 프롬프트 보강** — gpt-image-2.5/2.6 은 `background: "transparent"` 만으로는 부족하다. 스타일 프롬프트에 "종이 질감·분위기·장식 문양" 같은 표현이 있으면 캔버스 전체에 배경을 그려 넣는다(세시마을 민화 컨셉 실측: 아이콘 3/3 이 불투명 한지 배경으로 반환). 투명 생성 요청 시 "피사체만 그릴 것" 지시문을 프롬프트 끝에 자동으로 붙인다 (수정 후 6/6 투명).
+- **`gpt-5.2-chat-latest` 제거** — 2026-08-10 종료된 프롬프트 리파인 모델.
+- **유지되는 것** — 캐릭터 베이스·스프라이트·로고·썸네일·로딩/로비 화면 등 특수 목적 파이프라인의 기본 모델 `gpt-image-2`(마젠타 크로마키 경로)와 Vision QC `gpt-4.1-mini`, 프롬프트 리파인 `gpt-5.4-nano` 는 이번 릴리스에서 바꾸지 않았다. `gpt-image-2` 요청 본문은 이전과 동일. 각각 2027-02-10 / 2027-01-14 / 2027-04-01 종료 예정이라 v3.5.0 에서 이전한다.
+
+### ✨ 신규
+
+- **`src/models.ts` 모델 레지스트리** — 이미지·비전·텍스트 모델 ID, 기본값, 종료 모델 대체표, 투명 지원 여부, quality 규칙을 한 파일로 모았다. 다음 지원 종료 때는 이 파일(과 `cost-tracking.ts` 단가표)만 고치면 된다. 도구 20여 개 파일에 흩어져 있던 모델 ID 하드코딩·유니온 캐스트 제거.
+- **기본 모델 환경변수 override** — `OPENAI_IMAGE_MODEL`(예: 비용 우선이면 `gpt-image-2.5-flare`), `OPENAI_VISION_MODEL`, `OPENAI_PROMPT_MODEL`.
+- **`asset_generate_image_responses`** — image_generation tool 에 `model` 을 명시 전달(기본 `gpt-image-2.6-flare`). 이전에는 미지정이라 API 기본값에 맡겨져 있었다.
+- **`editImageOpenAI`** 에 `quality` / `background` 파라미터 추가. `image_edit` 의 `quality` 입력이 실제로 전달되도록 수정(이전에는 무시됨).
+
+### 💰 비용 추정 테이블 갱신 (`src/utils/cost-tracking.ts`)
+
+- 2026-11-12 실측 출력 토큰 × $30/1M 기준으로 교체 (1024² low / medium / high):
+  - `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`: $0.025 / $0.043 / $0.053 (sunburst 는 low 만 실측, 나머지는 flare 와 동일 가정)
+  - `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`: $0.006 / $0.013 / $0.053
+  - `gpt-image-2`: $0.006 / $0.053 / $0.211 (OpenAI 공식 장당 단가표, medium 실측과 일치)
+- ⚠️ **이전 테이블은 `gpt-image-2` 를 크게 과소 추정**하고 있었다 (high $0.04 → 실제 약 $0.21). registry 의 과거 `est_cost_usd` 는 실제 청구보다 낮게 기록돼 있을 수 있다.
+- ⚠️ **기본 모델 단가 상승** — `gpt-image-1-mini` medium 약 $0.011 → `gpt-image-2.6-flare` medium 약 $0.043. `gpt-image-2.5-flare`(medium 약 $0.013)가 비용은 비슷하지만 투명 배경 요청 5건 중 2건이 불투명 배경으로 돌아와 기본값으로 채택하지 않았다.
+- 1536/1792 급 직사각형 사이즈 계수 1.3 → 1.0 (실측상 1024² 와 토큰 수가 비슷하거나 적음). edit 추정은 2.5/2.6 계열 medium, `gpt-image-2` high 가정.
+
+### 🐛 버그 수정
+
+- **`asset_generate_weapons` 가 항상 실패하던 문제** — 생성 후 제자리 패딩(`addPadding(filePath, filePath)`)에서 sharp 가 `Cannot use same file for input and output` 을 던져 모든 무기가 실패 처리됐다. `addPadding` 이 버퍼를 거쳐 기록하도록 수정.
+- **`asset_convert_font_to_bitmap` 의 `korean_basic` 문자셋 오류** — KS X 1001 완성형 2,350자가 아니라 U+AC00 부터 연속 2,350자를 잘라 써서 '가'~'딭' 범위만 포함되고 '사'·'하' 등 대부분의 상용 음절이 빠져 있었다. 표준 KS X 1001 표(`src/utils/ksx1001-hangul.ts`)를 내장해 수정.
+- **`cleanupOldJobs`** — 주석과 달리 손상된 job 파일을 삭제하지 않던 문제 수정.
+- 플러그인 `plugin.json` 버전이 3.1.1 에 머물러 있던 것을 3.4.1 로, `package-lock.json` 버전 필드(2.0.0)를 패키지 버전과 맞춤.
+- v3.2.0 에서 제거한 영상(Sora)·Gemini 언급이 `plugin.json` / `marketplace.json` / `.env.example` / README / 스킬 문서 / 서버 헤더 주석에 남아 있던 것 정리.
+
+### 🧪 테스트
+
+- `tests/models.test.ts` 신설 (레지스트리·종료 모델 치환·quality 규칙·스키마·KS X 1001 표), `addPadding` 제자리 패딩 회귀 테스트, `prepareEditInput` 테스트, 비용 추정 테스트 보강. 27 → **43 tests**.
+- 실제 OpenAI API + MCP stdio 클라이언트로 종단 검증: 기본 모델 생성, 종료 ID 치환, `gpt-image-2` 경로, 무기, Responses API, 한글 비트맵 폰트, 이미지/스프라이트 편집, 초상화(투명·배경). 세시마을 컨셉·canon 으로 아이콘 배치·아이템·편집·초상·참조 생성·디자인 시트(`gpt-image-2` 경로) 확인.
+
+### ⚠️ 알려진 제한
+
+- 스프라이트·로고·썸네일 등 `gpt-image-2` 기본 파이프라인에서 `model` 을 gpt-image-2.5/2.6 으로 직접 지정하는 조합은 이번 릴리스에서 종단 검증하지 않았다 (v3.5.0 에서 크로마키 경로 정리와 함께 이전 예정).
+- 새 기본 모델은 스타일 프롬프트를 이전 모델보다 문자 그대로 따른다. 예: "decorative folk patterns" 가 있으면 장작·철괴 같은 사물 표면에도 문양을 입힌다. 기존 에셋과 톤을 맞추려면 CONCEPT 의 BASE STYLE PROMPT 를 조정하거나 canon 참조 생성을 쓸 것.
+- `asset_generate_character_portrait` 는 프롬프트에 치비 스타일이 고정돼 있어 CONCEPT 의 화풍과 무관하게 캐릭터를 치비로 바꾼다 (기존 동작, v3.5.0 에서 수정 예정).
+- Vision QC·`asset_select_best` 가 쓰는 `gpt-4.1-mini` 는 2027-01-14 종료 예정. 그 전에 `OPENAI_VISION_MODEL` 로 교체하거나 v3.5.0 으로 업데이트 필요.
+
 ## 3.4.0 — 2026-07-14
 
 > Visual Concept 전자동 파이프라인(키 비주얼 자동 선별 → canon 앵커 → 디자인 시트 세트 생성) + 해부학 정밀 QC(손가락·좌우·소품 위치) + rembg 패키징/모델 선택 수정. 세시마을 실전 검증 완료.

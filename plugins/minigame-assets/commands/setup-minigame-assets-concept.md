@@ -63,10 +63,10 @@ asset-plan.json의 priority 순서대로 생성합니다.
    - export_formats는 2단계 분석 결과의 권장값 사용
 
 ### 무기 아이콘
-`asset_generate_weapons` — gpt-image-1, 투명 배경 (네이티브, 빠른 경로 유지)
+`asset_generate_weapons` — gpt-image-2.6-flare, 투명 배경 (네이티브, 빠른 경로 유지)
 
 ### 배경 + 화면 이미지
-- `asset_generate_screen_background` — **spec-aware** (target_size 또는 asset_size_spec.json 의 backgrounds.full 자동 적용) gpt-image-2 (불투명 static). parallax 투명 레이어는 gpt-image-1 네이티브 투명
+- `asset_generate_screen_background` — **spec-aware** (target_size 또는 asset_size_spec.json 의 backgrounds.full 자동 적용) gpt-image-2 (불투명 static). parallax 투명 레이어는 gpt-image-2.6-flare 네이티브 투명
 - `asset_generate_loading_screen` — 로딩 화면 (하단 20% 프로그레스 영역)
 - `asset_generate_lobby_screen` — 로비/메인 메뉴 (menu_side로 UI 자리)
 

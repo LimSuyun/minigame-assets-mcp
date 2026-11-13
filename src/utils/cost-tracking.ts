@@ -10,36 +10,52 @@
  * 모델·크기·품질 조합별로 경험적 가격 범위를 반환.
  */
 
-// ─── 모델별 추정 단가 테이블 (USD, 2026-04 기준 추정) ───────────────────────
+
+import { normalizeImageModelId, resolveImageQuality } from "../models.js";
+
+// ─── 모델별 추정 단가 테이블 (USD, 1024×1024 기준) ──────────────────────────
+//
+// GPT Image 계열은 출력 토큰 과금($30 / 1M image output tokens)이다.
+// 아래 값은 2026-11-12 실측 출력 토큰 × $30/1M 로 환산한 장당 추정치.
+//   gpt-image-2.6-flare : low 824 / medium 1,449 / high 1,758 토큰
+//   gpt-image-2.5-flare : low 196 / medium   439 / high 1,756 토큰
+//   gpt-image-2         : OpenAI 공식 장당 단가표 (medium 1,756 토큰 실측과 일치)
+// sunburst 는 low(824 토큰)만 실측 — medium/high 는 flare 와 같다고 가정.
+// 입력(프롬프트·참조 이미지) 토큰 비용은 포함하지 않는다.
 
 export type ImageModelPricing = {
-  /** 이미지 생성 단건 추정 단가 (USD). quality/size에 따라 변동 */
+  /** 이미지 생성 단건 추정 단가 (USD). quality에 따라 변동 */
   perImage: Record<"low" | "medium" | "high" | "auto", number>;
 };
 
-// OpenAI gpt-image 계열 — quality별 구분 명확
 const OPENAI_IMAGE_PRICING: Record<string, ImageModelPricing> = {
+  "gpt-image-2.6-flare": {
+    perImage: { low: 0.025, medium: 0.043, high: 0.053, auto: 0.043 },
+  },
+  "gpt-image-2.6-sunburst": {
+    perImage: { low: 0.025, medium: 0.043, high: 0.053, auto: 0.043 },
+  },
+  "gpt-image-2.5-flare": {
+    perImage: { low: 0.006, medium: 0.013, high: 0.053, auto: 0.013 },
+  },
+  "gpt-image-2.5-sunburst": {
+    perImage: { low: 0.006, medium: 0.013, high: 0.053, auto: 0.013 },
+  },
   "gpt-image-2": {
-    perImage: { low: 0.01, medium: 0.02, high: 0.04, auto: 0.025 },
-  },
-  "gpt-image-1.5": {
-    perImage: { low: 0.008, medium: 0.016, high: 0.03, auto: 0.02 },
-  },
-  "gpt-image-1": {
-    perImage: { low: 0.005, medium: 0.012, high: 0.02, auto: 0.015 },
-  },
-  "gpt-image-1-mini": {
-    perImage: { low: 0.003, medium: 0.008, high: 0.015, auto: 0.01 },
+    perImage: { low: 0.006, medium: 0.053, high: 0.211, auto: 0.053 },
   },
 };
 
-// 2K/4K 사이즈 요금 계수 (gpt-image-2 전용)
+/** 단가표에 없는 모델의 fallback 기준 모델 */
+const FALLBACK_PRICING_MODEL = "gpt-image-2.6-flare";
+
+// 2K/4K 사이즈 요금 계수. 1536/1792 급 직사각형은 1024² 와 토큰 수가 비슷해 1배로 둔다
+// (2.6-flare medium 실측: 1024² 1,449 / 1536×1024 1,132 토큰).
 function sizeMultiplier(size: string | undefined): number {
   if (!size) return 1;
   const lower = size.toLowerCase();
   if (lower.includes("3840") || lower.includes("2160") || lower.includes("4k")) return 3.0;
   if (lower.includes("2048") || lower.includes("1152")) return 1.8;
-  if (lower.includes("1792") || lower.includes("1536")) return 1.3;
   return 1;
 }
 
@@ -49,7 +65,6 @@ const GPT5_TEXT_PRICING: Record<string, { inputPer1M: number; outputPer1M: numbe
   "gpt-5.4-nano": { inputPer1M: 0.10, outputPer1M: 0.40 },
   "gpt-5.2": { inputPer1M: 0.50, outputPer1M: 2.00 },
   "gpt-5.2-pro": { inputPer1M: 3.00, outputPer1M: 12.00 },
-  "gpt-5.2-chat-latest": { inputPer1M: 0.50, outputPer1M: 2.00 },
 };
 
 // ─── 공개 함수 ───────────────────────────────────────────────────────────────
@@ -64,7 +79,7 @@ export interface ImageCostEstimate {
 /**
  * 이미지 생성 단건 추정 비용.
  *
- * @param model 모델 ID (gpt-image-2, gpt-image-1 등)
+ * @param model 모델 ID (gpt-image-2.6-flare, gpt-image-2 등). 종료된 ID는 대체 모델 기준으로 계산
  * @param quality low/medium/high/auto
  * @param size 선택적 (2K/4K면 요금 계수 적용)
  */
@@ -73,10 +88,11 @@ export function estimateImageCost(
   quality: "low" | "medium" | "high" | "auto" | undefined = "auto",
   size?: string,
 ): ImageCostEstimate {
-  const pricing = model ? OPENAI_IMAGE_PRICING[model] : undefined;
+  const modelId = model ? normalizeImageModelId(model) : undefined;
+  const pricing = modelId ? OPENAI_IMAGE_PRICING[modelId] : undefined;
   if (!pricing) {
-    // 알려지지 않은 모델 — 보수적으로 gpt-image-1 요금 사용
-    const fallback = OPENAI_IMAGE_PRICING["gpt-image-1"].perImage[quality] ?? 0.02;
+    // 알려지지 않은 모델 — 기본 모델(gpt-image-2.6-flare) 요금으로 근사
+    const fallback = OPENAI_IMAGE_PRICING[FALLBACK_PRICING_MODEL].perImage[quality] ?? 0.043;
     return { usd: fallback, formula: `unknown-model fallback ($${fallback})` };
   }
 
@@ -85,20 +101,22 @@ export function estimateImageCost(
   const usd = +(base * mult).toFixed(4);
   return {
     usd,
-    formula: `${model} × ${quality} × size-mult ${mult} = $${base} × ${mult}`,
+    formula: `${modelId} × ${quality} × size-mult ${mult} = $${base} × ${mult}`,
   };
 }
 
 /**
- * 이미지 edit 호출은 generate와 유사 비용으로 추정 (대부분의 API가 동일 과금).
- * 추가 참조 이미지 있어도 같은 가격 (입력 토큰 기반 과금 모델 제외).
+ * 이미지 edit 호출 추정 비용. 출력 토큰 기준이라 generate와 같은 단가를 쓴다
+ * (참조 이미지 입력 토큰 비용은 미포함).
+ * quality 미지정 시 서비스 계층 기본값을 따른다: gpt-image-2.5/2.6 계열은 medium,
+ * gpt-image-2 는 API 기본(auto) → 보수적으로 high 가정.
  */
 export function estimateImageEditCost(
   model: string | undefined,
   size?: string,
 ): ImageCostEstimate {
-  // edit은 quality 옵션 없음 — high 고정 가정
-  return estimateImageCost(model, "high", size);
+  const quality = model ? resolveImageQuality(model, undefined) ?? "high" : "high";
+  return estimateImageCost(model, quality, size);
 }
 
 /**

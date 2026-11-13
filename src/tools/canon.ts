@@ -322,7 +322,7 @@ Returns:
         const result = await editImageOpenAI({
           imagePath: path.resolve(canon.file_path),
           prompt: params.prompt,
-          model: (params.edit_model as "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini"),
+          model: (params.edit_model),
         });
 
         const safeAssetName = params.asset_name.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -886,7 +886,6 @@ Reply ONLY with valid JSON (no extra text):
                 imageBase64: base64,
                 imageMimeType: mimeType,
                 prompt: stylePrompt,
-                textModel: "gpt-4.1-mini",
                 maxOutputTokens: 400,
               });
               const match = text.match(/\{[\s\S]*\}/);
@@ -1220,7 +1219,7 @@ This is Step 1 of the Pose-First workflow:
 pose_image로 직접 asset_generate_sprite_sheet에 전달하면 내부에서 배경을 처리합니다.
 또는 먼저 asset_refine_transparency(method=chromakey)로 배경 제거 후 사용 가능.
 
-Uses gpt-image-1 with magenta background for chroma key removal.
+Uses gpt-image-2.6-flare with magenta background for chroma key removal.
 
 Args:
   - canon_id (string, optional): Canon character entry to use as style reference
@@ -1344,7 +1343,7 @@ Returns:
       title: "Generate Character 4-Direction Base Views",
       description: `Generate front / left / right / back base views of a character in one call.
 
-Each direction is generated sequentially using gpt-image-1 with a magenta (#FF00FF) chroma-key
+Each direction is generated sequentially using gpt-image-2.6-flare with a magenta (#FF00FF) chroma-key
 background so backgrounds can be removed cleanly afterward.
 
 Typical workflow:
